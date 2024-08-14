@@ -394,6 +394,7 @@ void IoContext::addTask(kj::Promise<void> promise) {
     // is not even executed in the actor case but I'm leaving the check in just in case that ever
     // changes.)
     auto& metrics = getMetrics();
+    //TODO
     if (metrics.getSpan().isObserved()) {
       metrics.addedContextTask();
       promise = promise.attach(
@@ -409,6 +410,7 @@ void IoContext::addWaitUntil(kj::Promise<void> promise) {
     // This metric won't work correctly in actors since it's being tracked per-request, but tasks
     // are not tied to requests in actors. So we just skip it in actors.
     auto& metrics = getMetrics();
+    //TODO
     if (metrics.getSpan().isObserved()) {
       metrics.addedWaitUntilTask();
       promise = promise.attach(kj::defer(
@@ -779,14 +781,19 @@ kj::Date IoContext::now() {
 }
 
 kj::Own<WorkerInterface> IoContext::getSubrequestNoChecks(
-    kj::FunctionParam<kj::Own<WorkerInterface>(SpanBuilder&, IoChannelFactory&)> func,
+    kj::FunctionParam<kj::Own<WorkerInterface>(SpanBuilder&, lime::LimeSpanBuilder&, IoChannelFactory&)> func,
     SubrequestOptions options) {
   SpanBuilder span = nullptr;
+  // TODO
+  lime::LimeSpanBuilder limeSpan = nullptr;
+
   KJ_IF_SOME(n, options.operationName) {
+    auto n2 = kj::heapString(n.asPtr());
     span = makeTraceSpan(kj::mv(n));
+    limeSpan = makeLimeTraceSpan(kj::ConstString(kj::mv(n2)));
   }
 
-  auto ret = func(span, getIoChannelFactory());
+  auto ret = func(span, limeSpan, getIoChannelFactory());
 
   if (options.wrapMetrics) {
     auto& metrics = getMetrics();
@@ -803,7 +810,7 @@ kj::Own<WorkerInterface> IoContext::getSubrequestNoChecks(
 }
 
 kj::Own<WorkerInterface> IoContext::getSubrequest(
-    kj::FunctionParam<kj::Own<WorkerInterface>(SpanBuilder&, IoChannelFactory&)> func,
+    kj::FunctionParam<kj::Own<WorkerInterface>(SpanBuilder&, lime::LimeSpanBuilder&, IoChannelFactory&)> func,
     SubrequestOptions options) {
   limitEnforcer->newSubrequest(options.inHouse);
   return getSubrequestNoChecks(kj::mv(func), kj::mv(options));
@@ -811,40 +818,38 @@ kj::Own<WorkerInterface> IoContext::getSubrequest(
 
 kj::Own<WorkerInterface> IoContext::getSubrequestChannel(
     uint channel, bool isInHouse, kj::Maybe<kj::String> cfBlobJson, kj::ConstString operationName) {
-  return getSubrequest(
-      [&](SpanBuilder& span, IoChannelFactory& channelFactory) {
-    return getSubrequestChannelImpl(channel, isInHouse, kj::mv(cfBlobJson), span, channelFactory);
-  },
-      SubrequestOptions{
-        .inHouse = isInHouse,
-        .wrapMetrics = !isInHouse,
-        .operationName = kj::mv(operationName),
-      });
+  return getSubrequest([&](SpanBuilder& span, lime::LimeSpanBuilder& limeSpan, IoChannelFactory& channelFactory) {
+    return getSubrequestChannelImpl(
+        channel, isInHouse, kj::mv(cfBlobJson), span, limeSpan, channelFactory);
+  }, SubrequestOptions {
+    .inHouse = isInHouse,
+    .wrapMetrics = !isInHouse,
+    .operationName = kj::mv(operationName),
+  });
 }
 
 kj::Own<WorkerInterface> IoContext::getSubrequestChannelNoChecks(uint channel,
     bool isInHouse,
     kj::Maybe<kj::String> cfBlobJson,
     kj::Maybe<kj::ConstString> operationName) {
-  return getSubrequestNoChecks(
-      [&](SpanBuilder& span, IoChannelFactory& channelFactory) {
-    return getSubrequestChannelImpl(channel, isInHouse, kj::mv(cfBlobJson), span, channelFactory);
-  },
-      SubrequestOptions{
-        .inHouse = isInHouse,
-        .wrapMetrics = !isInHouse,
-        .operationName = kj::mv(operationName),
-      });
+  return getSubrequestNoChecks([&](SpanBuilder& span, lime::LimeSpanBuilder& limeSpan,
+                                   IoChannelFactory& channelFactory) {
+    return getSubrequestChannelImpl(
+        channel, isInHouse, kj::mv(cfBlobJson), span, limeSpan, channelFactory);
+  }, SubrequestOptions {
+    .inHouse = isInHouse,
+    .wrapMetrics = !isInHouse,
+    .operationName = kj::mv(operationName),
+  });
 }
 
-kj::Own<WorkerInterface> IoContext::getSubrequestChannelImpl(uint channel,
-    bool isInHouse,
-    kj::Maybe<kj::String> cfBlobJson,
-    SpanBuilder& span,
-    IoChannelFactory& channelFactory) {
-  IoChannelFactory::SubrequestMetadata metadata{
+kj::Own<WorkerInterface> IoContext::getSubrequestChannelImpl(
+    uint channel, bool isInHouse, kj::Maybe<kj::String> cfBlobJson,
+    SpanBuilder& span, lime::LimeSpanBuilder& limeSpan, IoChannelFactory& channelFactory) {
+  IoChannelFactory::SubrequestMetadata metadata {
     .cfBlobJson = kj::mv(cfBlobJson),
     .parentSpan = span,
+    .limeParentSpan = limeSpan,
     .featureFlagsForFl = worker->getIsolate().getFeatureFlagsForFl(),
   };
 
@@ -884,11 +889,38 @@ jsg::AsyncContextFrame::StorageScope IoContext::makeAsyncTraceScope(
     spanParent = kj::heap(kj::mv(spo));
   } else {
     spanParent = kj::heap(getMetrics().getSpan());
+    KJ_IF_SOME(observer, spanParent->getObserver()) {
+      (void)observer;
+      KJ_LOG(WARNING, "makeAsyncTraceScope: has observer");
+    } else {
+      KJ_LOG(WARNING, "makeAsyncTraceScope: no observer");
+    }
   }
   auto ioOwnSpanParent = IoContext::current().addObject(kj::mv(spanParent));
   auto spanHandle = jsg::wrapOpaque(js.v8Context(), kj::mv(ioOwnSpanParent));
   return jsg::AsyncContextFrame::StorageScope(
       js, lock.getTraceAsyncContextKey(), js.v8Ref(spanHandle));
+}
+
+jsg::AsyncContextFrame::StorageScope IoContext::makeAsyncLimeTraceScope(
+    Worker::Lock& lock, kj::Maybe<lime::LimeSpanParent> spanParentOverride) {
+  jsg::Lock& js = lock;
+  kj::Own<lime::LimeSpanParent> spanParent;
+  KJ_IF_SOME (spo, kj::mv(spanParentOverride)) {
+    spanParent = kj::heap(kj::mv(spo));
+  } else {
+    spanParent = kj::heap(getMetrics().getLimeSpan());
+  KJ_IF_SOME(observer, spanParent->getObserver()) {
+      (void)observer;
+      KJ_LOG(WARNING, "makeAsyncLimeTraceScope: has observer");
+    } else {
+      KJ_LOG(WARNING, "makeAsyncLimeTraceScope: no observer");
+    }
+  }
+  auto ioOwnSpanParent = IoContext::current().addObject(kj::mv(spanParent));
+  auto spanHandle = jsg::wrapOpaque(js.v8Context(), kj::mv(ioOwnSpanParent));
+  return jsg::AsyncContextFrame::StorageScope(
+      js, lock.getLimeTraceAsyncContextKey(), js.v8Ref(spanHandle));
 }
 
 SpanParent IoContext::getCurrentTraceSpan() {
@@ -909,8 +941,30 @@ SpanParent IoContext::getCurrentTraceSpan() {
   return getMetrics().getSpan();
 }
 
+lime::LimeSpanParent IoContext::getCurrentLimeTraceSpan() {
+  // If called while lock is held, try to use the trace info stored in the async context.
+  KJ_IF_SOME (lock, currentLock) {
+    KJ_IF_SOME (frame, jsg::AsyncContextFrame::current(lock)) {
+      KJ_IF_SOME (value, frame.get(lock.getLimeTraceAsyncContextKey())) {
+        auto handle = value.getHandle(lock);
+        jsg::Lock& js = lock;
+        auto& spanParent = jsg::unwrapOpaqueRef<IoOwn<lime::LimeSpanParent>>(js.v8Isolate, handle);
+        return spanParent->limeAddRef();
+      }
+    }
+  }
+
+  // If async context is unavailable (unset, or JS lock is not held), fall back to heuristic of
+  // using the trace info from the most recent active request.
+  return getMetrics().getLimeSpan();
+}
+
 SpanBuilder IoContext::makeTraceSpan(kj::ConstString operationName) {
   return getCurrentTraceSpan().newChild(kj::mv(operationName));
+}
+
+lime::LimeSpanBuilder IoContext::makeLimeTraceSpan(kj::ConstString operationName) {
+  return getCurrentLimeTraceSpan().newLimeChild(kj::mv(operationName));
 }
 
 void IoContext::taskFailed(kj::Exception&& exception) {

@@ -97,6 +97,7 @@ public:
   virtual SpanParent getSpan() {
     return nullptr;
   }
+  virtual lime::LimeSpanParent getLimeSpan() { return nullptr; }
 
   virtual void addedContextTask() {}
   virtual void finishedContextTask() {}

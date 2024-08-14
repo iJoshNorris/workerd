@@ -21,6 +21,11 @@ enum class HttpMethod;
 class EntropySource;
 }  // namespace kj
 
+namespace workerd::lime {
+  class LimeSpanParent;
+  class LimeSpanBuilder;
+}
+
 namespace workerd {
 
 using kj::byte;
@@ -521,6 +526,8 @@ private:
   kj::Maybe<kj::Own<SpanObserver>> observer;
 
   friend class SpanBuilder;
+  friend class lime::LimeSpanParent;
+  friend class lime::LimeSpanBuilder;
 };
 
 // Interface for writing a span. Essentially, this is a mutable interface to a `Span` object,
@@ -604,6 +611,8 @@ private:
   kj::Maybe<Span> span;
 
   friend class SpanParent;
+  friend class lime::LimeSpanBuilder;
+  friend class lime::LimeSpanParent;
 };
 
 // Abstract interface for observing trace spans reported by the runtime. Different
@@ -640,5 +649,109 @@ inline SpanBuilder SpanBuilder::newChild(kj::ConstString operationName, kj::Date
   return SpanBuilder(observer.map([](kj::Own<SpanObserver>& obs) { return obs->newChild(); }),
       kj::mv(operationName), startTime);
 }
+
+namespace lime {
+class LimeSpanBuilder final: public SpanBuilder {
+public:
+  // explicit LimeSpanBuilder(
+  //   kj::Maybe<kj::Own<SpanObserver>> observer, LimeSpanType operation, LimeSpanTimeType timeType)
+  // : SpanBuilder(kj::mv(observer), kj::ConstString(defaultSpanTypes[(uint32_t)operation].name)) {
+  //time not supported properly for now. May need to have a shared base class for LimeSpanBuilder and SpanBuilder.
+  /*if (observer != kj::none) {
+      this->observer = kj::mv(observer);
+      span.emplace(kj::mv(defaultSpanTypes[operation]), startTime);
+    }*/
+  //SpanBuilder(kj::mv(observer), kj::ConstString(defaultSpanTypes[(uint32_t)operation].name));
+  //}
+
+  explicit LimeSpanBuilder(kj::Maybe<kj::Own<SpanObserver>> observer,
+      kj::ConstString operationName,
+      kj::Date startTime = kj::systemPreciseCalendarClock().now())
+      : SpanBuilder(kj::mv(observer), kj::mv(operationName), startTime) {}
+
+  // Make a SpanBuilder that ignores all calls. (Useful if you want to assign it later.)
+  LimeSpanBuilder(decltype(nullptr)): SpanBuilder(nullptr) {}
+
+  LimeSpanBuilder newLimeChild(kj::ConstString operationName);
+
+  LimeSpanBuilder(LimeSpanBuilder&& other) = default;
+  LimeSpanBuilder& operator=(
+      LimeSpanBuilder&& other);  // ends the existing span and starts a new one
+  KJ_DISALLOW_COPY(LimeSpanBuilder);
+
+  ~LimeSpanBuilder() noexcept(false){};
+};
+
+inline LimeSpanBuilder& LimeSpanBuilder::operator=(LimeSpanBuilder&& other) {
+  end();
+  observer = kj::mv(other.observer);
+  span = kj::mv(other.span);
+  return *this;
+}
+
+class LimeSpanParent final: public SpanParent {
+public:
+  LimeSpanParent(LimeSpanBuilder& builder);
+
+  // Make a SpanParent that causes children not to be reported anywhere.
+  LimeSpanParent(decltype(nullptr)): SpanParent(nullptr) {}
+
+  //SpanBuilder newChild(kj::ConstString operationName, kj::Date startTime) = delete;
+  //LimeSpanBuilder newChild(kj::ConstString operationName,
+  //  kj::Date startTime = kj::systemPreciseCalendarClock().now()) override;
+  LimeSpanBuilder newLimeChild(kj::ConstString operationName);
+  //virtual SpanBuilder newChild(kj::ConstString operationName,
+  //    kj::Date startTime = kj::systemPreciseCalendarClock().now());
+
+  LimeSpanParent(kj::Maybe<kj::Own<SpanObserver>> observer): SpanParent(kj::mv(observer)) {}
+
+  LimeSpanParent(LimeSpanParent&& other) = default;
+  LimeSpanParent& operator=(LimeSpanParent&& other) = default;
+  KJ_DISALLOW_COPY(LimeSpanParent);
+
+  LimeSpanParent limeAddRef();
+
+  //
+  //LimeSpanParent addRef();
+
+  // TODO: Override this.
+  // Create a new child span.
+  //
+  // `operationName` should be a string literal with infinite lifetime.
+  //SpanBuilder newChild(kj::ConstString operationName,
+  //    kj::Date startTime = kj::systemPreciseCalendarClock().now());
+
+  // Useful to skip unnecessary code when not observed.
+  //bool isObserved() { return observer != kj::none; }
+
+  // Get the underlying SpanObserver representing the parent span.
+  //
+  // This is needed in particular when making outbound network requests that must be annotated with
+  // trace IDs in a way that is specific to the trace back-end being used. The caller must downcast
+  // the `SpanObserver` to the expected observer type in order to extract the trace ID.
+  //kj::Maybe<SpanObserver&> getObserver() { return observer; }
+
+private:
+  friend class LimeSpanBuilder;
+};
+
+inline LimeSpanParent::LimeSpanParent(LimeSpanBuilder& builder)
+    : SpanParent(mapAddRef(builder.observer)) {}
+
+inline LimeSpanParent LimeSpanParent::limeAddRef() { return LimeSpanParent(mapAddRef(observer)); }
+
+inline LimeSpanBuilder LimeSpanParent::newLimeChild(kj::ConstString operationName) {
+  KJ_LOG(WARNING, "newLimeChild", operationName);
+  return LimeSpanBuilder(observer.map([](kj::Own<SpanObserver>& obs) { return obs->newChild(); }),
+      kj::mv(operationName));
+}
+
+inline LimeSpanBuilder LimeSpanBuilder::newLimeChild(kj::ConstString operationName) {
+  return LimeSpanBuilder(observer.map([](kj::Own<SpanObserver>& obs) { return obs->newChild(); }),
+      kj::mv(operationName));
+}
+
+};  // namespace lime
+
 
 }  // namespace workerd
