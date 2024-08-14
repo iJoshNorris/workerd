@@ -24,7 +24,7 @@ public:
     auto& context = IoContext::current();
 
     return context.getMetrics().wrapActorSubrequestClient(context.getSubrequest(
-        [&](SpanBuilder& span, IoChannelFactory& ioChannelFactory) {
+        [&](SpanBuilder& span, lime::LimeSpanBuilder&, IoChannelFactory& ioChannelFactory) {
       if (span.isObserved()) {
         span.setTag("actor_id"_kjc, kj::str(actorId));
       }
@@ -65,7 +65,7 @@ public:
     auto& context = IoContext::current();
 
     return context.getMetrics().wrapActorSubrequestClient(context.getSubrequest(
-        [&](SpanBuilder& span, IoChannelFactory& ioChannelFactory) {
+        [&](SpanBuilder& span, lime::LimeSpanBuilder&, IoChannelFactory& ioChannelFactory) {
       if (span.isObserved()) {
         span.setTag("actor_id"_kjc, id->toString());
       }

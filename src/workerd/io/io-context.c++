@@ -779,14 +779,18 @@ kj::Date IoContext::now() {
 }
 
 kj::Own<WorkerInterface> IoContext::getSubrequestNoChecks(
-    kj::FunctionParam<kj::Own<WorkerInterface>(SpanBuilder&, IoChannelFactory&)> func,
+    kj::FunctionParam<kj::Own<WorkerInterface>(SpanBuilder&, lime::LimeSpanBuilder&, IoChannelFactory&)> func,
     SubrequestOptions options) {
   SpanBuilder span = nullptr;
+  lime::LimeSpanBuilder limeSpan = nullptr;
+
   KJ_IF_SOME(n, options.operationName) {
-    span = makeTraceSpan(kj::mv(n));
+    // TODO(cleanup): Avoid cloning the string here.
+    span = makeTraceSpan(kj::ConstString(kj::str(n)));
+    limeSpan = makeLimeTraceSpan(kj::ConstString(kj::mv(n)));
   }
 
-  auto ret = func(span, getIoChannelFactory());
+  auto ret = func(span, limeSpan, getIoChannelFactory());
 
   if (options.wrapMetrics) {
     auto& metrics = getMetrics();
@@ -798,12 +802,15 @@ kj::Own<WorkerInterface> IoContext::getSubrequestNoChecks(
   if (span.isObserved()) {
     ret = ret.attach(kj::mv(span));
   }
+  if (limeSpan.isObserved()) {
+    ret = ret.attach(kj::mv(limeSpan));
+  }
 
   return kj::mv(ret);
 }
 
 kj::Own<WorkerInterface> IoContext::getSubrequest(
-    kj::FunctionParam<kj::Own<WorkerInterface>(SpanBuilder&, IoChannelFactory&)> func,
+    kj::FunctionParam<kj::Own<WorkerInterface>(SpanBuilder&, lime::LimeSpanBuilder&, IoChannelFactory&)> func,
     SubrequestOptions options) {
   limitEnforcer->newSubrequest(options.inHouse);
   return getSubrequestNoChecks(kj::mv(func), kj::mv(options));
@@ -811,40 +818,38 @@ kj::Own<WorkerInterface> IoContext::getSubrequest(
 
 kj::Own<WorkerInterface> IoContext::getSubrequestChannel(
     uint channel, bool isInHouse, kj::Maybe<kj::String> cfBlobJson, kj::ConstString operationName) {
-  return getSubrequest(
-      [&](SpanBuilder& span, IoChannelFactory& channelFactory) {
-    return getSubrequestChannelImpl(channel, isInHouse, kj::mv(cfBlobJson), span, channelFactory);
-  },
-      SubrequestOptions{
-        .inHouse = isInHouse,
-        .wrapMetrics = !isInHouse,
-        .operationName = kj::mv(operationName),
-      });
+  return getSubrequest([&](SpanBuilder& span, lime::LimeSpanBuilder& limeSpan, IoChannelFactory& channelFactory) {
+    return getSubrequestChannelImpl(
+        channel, isInHouse, kj::mv(cfBlobJson), span, limeSpan, channelFactory);
+  }, SubrequestOptions {
+    .inHouse = isInHouse,
+    .wrapMetrics = !isInHouse,
+    .operationName = kj::mv(operationName),
+  });
 }
 
 kj::Own<WorkerInterface> IoContext::getSubrequestChannelNoChecks(uint channel,
     bool isInHouse,
     kj::Maybe<kj::String> cfBlobJson,
     kj::Maybe<kj::ConstString> operationName) {
-  return getSubrequestNoChecks(
-      [&](SpanBuilder& span, IoChannelFactory& channelFactory) {
-    return getSubrequestChannelImpl(channel, isInHouse, kj::mv(cfBlobJson), span, channelFactory);
-  },
-      SubrequestOptions{
-        .inHouse = isInHouse,
-        .wrapMetrics = !isInHouse,
-        .operationName = kj::mv(operationName),
-      });
+  return getSubrequestNoChecks([&](SpanBuilder& span, lime::LimeSpanBuilder& limeSpan,
+                                   IoChannelFactory& channelFactory) {
+    return getSubrequestChannelImpl(
+        channel, isInHouse, kj::mv(cfBlobJson), span, limeSpan, channelFactory);
+  }, SubrequestOptions {
+    .inHouse = isInHouse,
+    .wrapMetrics = !isInHouse,
+    .operationName = kj::mv(operationName),
+  });
 }
 
-kj::Own<WorkerInterface> IoContext::getSubrequestChannelImpl(uint channel,
-    bool isInHouse,
-    kj::Maybe<kj::String> cfBlobJson,
-    SpanBuilder& span,
-    IoChannelFactory& channelFactory) {
-  IoChannelFactory::SubrequestMetadata metadata{
+kj::Own<WorkerInterface> IoContext::getSubrequestChannelImpl(
+    uint channel, bool isInHouse, kj::Maybe<kj::String> cfBlobJson,
+    SpanBuilder& span, lime::LimeSpanBuilder& limeSpan, IoChannelFactory& channelFactory) {
+  IoChannelFactory::SubrequestMetadata metadata {
     .cfBlobJson = kj::mv(cfBlobJson),
     .parentSpan = span,
+    .limeParentSpan = limeSpan,
     .featureFlagsForFl = worker->getIsolate().getFeatureFlagsForFl(),
   };
 
@@ -909,8 +914,21 @@ SpanParent IoContext::getCurrentTraceSpan() {
   return getMetrics().getSpan();
 }
 
+lime::LimeSpanParent IoContext::getCurrentLimeTraceSpan() {
+  // TODO(later): Add support for retrieving span from storage scope lock, as with Jaeger tracing,
+  // for more accurate context for getting span.
+
+  // If async context is unavailable (unset, or JS lock is not held), fall back to heuristic of
+  // using the trace info from the most recent active request.
+  return getMetrics().getLimeSpan();
+}
+
 SpanBuilder IoContext::makeTraceSpan(kj::ConstString operationName) {
   return getCurrentTraceSpan().newChild(kj::mv(operationName));
+}
+
+lime::LimeSpanBuilder IoContext::makeLimeTraceSpan(kj::ConstString operationName) {
+  return getCurrentLimeTraceSpan().newLimeChild(kj::mv(operationName));
 }
 
 void IoContext::taskFailed(kj::Exception&& exception) {

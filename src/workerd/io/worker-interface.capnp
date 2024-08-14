@@ -17,6 +17,7 @@ using import "/workerd/io/script-version.capnp".ScriptVersion;
 
 struct Trace @0x8e8d911203762d34 {
   logs @0 :List(Log);
+  spans @25 :List(Log);
   struct Log {
     timestampNs @0 :Int64;
 

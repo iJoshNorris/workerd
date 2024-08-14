@@ -15,6 +15,9 @@ class HttpClient;
 }
 
 namespace workerd {
+namespace lime {
+class LimeSpanParent;
+}
 
 class WorkerInterface;
 
@@ -89,6 +92,7 @@ public:
 
     // Specifies the parent span for the subrequest for tracing purposes.
     SpanParent parentSpan = nullptr;
+    lime::LimeSpanParent limeParentSpan = nullptr;
 
     // Serialized JSON value to pass in ew_compat field of control header to FL. If this subrequest
     // does not go directly to FL, this value is ignored. Flags marked with `$neededByFl` in
