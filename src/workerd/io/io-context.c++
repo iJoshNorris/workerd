@@ -805,6 +805,9 @@ kj::Own<WorkerInterface> IoContext::getSubrequestNoChecks(
   if (span.isObserved()) {
     ret = ret.attach(kj::mv(span));
   }
+  if (limeSpan.isObserved()) {
+    ret = ret.attach(kj::mv(limeSpan));
+  }
 
   return kj::mv(ret);
 }
@@ -889,12 +892,6 @@ jsg::AsyncContextFrame::StorageScope IoContext::makeAsyncTraceScope(
     spanParent = kj::heap(kj::mv(spo));
   } else {
     spanParent = kj::heap(getMetrics().getSpan());
-    KJ_IF_SOME(observer, spanParent->getObserver()) {
-      (void)observer;
-      KJ_LOG(WARNING, "makeAsyncTraceScope: has observer");
-    } else {
-      KJ_LOG(WARNING, "makeAsyncTraceScope: no observer");
-    }
   }
   auto ioOwnSpanParent = IoContext::current().addObject(kj::mv(spanParent));
   auto spanHandle = jsg::wrapOpaque(js.v8Context(), kj::mv(ioOwnSpanParent));
@@ -910,12 +907,6 @@ jsg::AsyncContextFrame::StorageScope IoContext::makeAsyncLimeTraceScope(
     spanParent = kj::heap(kj::mv(spo));
   } else {
     spanParent = kj::heap(getMetrics().getLimeSpan());
-  KJ_IF_SOME(observer, spanParent->getObserver()) {
-      (void)observer;
-      KJ_LOG(WARNING, "makeAsyncLimeTraceScope: has observer");
-    } else {
-      KJ_LOG(WARNING, "makeAsyncLimeTraceScope: no observer");
-    }
   }
   auto ioOwnSpanParent = IoContext::current().addObject(kj::mv(spanParent));
   auto spanHandle = jsg::wrapOpaque(js.v8Context(), kj::mv(ioOwnSpanParent));

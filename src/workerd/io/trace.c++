@@ -485,7 +485,18 @@ SpanBuilder& SpanBuilder::operator=(SpanBuilder&& other) {
   return *this;
 }
 
+lime::LimeSpanBuilder& lime::LimeSpanBuilder::operator=(LimeSpanBuilder&& other) {
+  end();
+  observer = kj::mv(other.observer);
+  span = kj::mv(other.span);
+  return *this;
+}
+
 SpanBuilder::~SpanBuilder() noexcept(false) {
+  end();
+}
+
+lime::LimeSpanBuilder::~LimeSpanBuilder() noexcept(false) {
   end();
 }
 
@@ -499,13 +510,23 @@ void SpanBuilder::end() {
   }
 }
 
-void SpanBuilder::setOperationName(kj::ConstString operationName) {
+void lime::LimeSpanBuilder::end() {
+  KJ_IF_SOME(o, observer) {
+    KJ_IF_SOME(s, span) {
+      s.endTime = kj::systemPreciseCalendarClock().now();
+      o->report(s);
+      span = kj::none;
+    }
+  }
+}
+
+void SpanBuilderBase::setOperationName(kj::ConstString operationName) {
   KJ_IF_SOME(s, span) {
     s.operationName = kj::mv(operationName);
   }
 }
 
-void SpanBuilder::setTag(kj::ConstString key, TagValue value) {
+void SpanBuilderBase::setTag(kj::ConstString key, TagValue value) {
   KJ_IF_SOME(s, span) {
     auto keyPtr = key.asPtr();
     s.tags.upsert(
@@ -521,7 +542,7 @@ void SpanBuilder::setTag(kj::ConstString key, TagValue value) {
   }
 }
 
-void SpanBuilder::addLog(kj::Date timestamp, kj::ConstString key, TagValue value) {
+void SpanBuilderBase::addLog(kj::Date timestamp, kj::ConstString key, TagValue value) {
   KJ_IF_SOME(s, span) {
     if (s.logs.size() >= Span::MAX_LOGS) {
       ++s.droppedLogs;

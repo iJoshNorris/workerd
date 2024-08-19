@@ -132,7 +132,7 @@ wd_cc_library(
 wd_cc_library(
     name = "trace",
     srcs = ["trace.c++"],
-    hdrs = ["trace.h"],
+    hdrs = ["trace.h", "lime-spans.h"],
     visibility = ["//visibility:public"],
     deps = [
         ":worker-interface_capnp",

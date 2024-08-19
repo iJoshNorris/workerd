@@ -197,7 +197,7 @@ kj::Promise<DeferredProxy<void>> ServiceWorkerGlobalScope::request(kj::HttpMetho
   uint tasksBefore = ioContext.taskCount();
 
   // We'll drop our span once the promise (fetch handler result) resolves.
-  kj::Maybe<SpanBuilder> limeSpan = ioContext.makeLimeTraceSpan("fetch_handler"_kjc);
+  kj::Maybe<lime::LimeSpanBuilder> limeSpan = ioContext.makeLimeTraceSpan("fetch_handler"_kjc);
   kj::Maybe<SpanBuilder> span = ioContext.makeTraceSpan("fetch_handler"_kjc);
   bool useDefaultHandling;
   KJ_IF_SOME(h, exportedHandler) {
