@@ -483,30 +483,26 @@ public:
         endTime(startTime) {}
 };
 
+// lime spans use the same underlying span type, define an alias for convenience.
+typedef Span LimeSpan;
+
 // An opaque token which can be used to create child spans of some parent. This is typically
 // passed down from a caller to a callee when the caller wants to allow the callee to create
 // spans for itself that show up as children of the caller's span, but the caller does not
 // want to give the callee any other ability to modify the parent span.
-class SpanParent {
+// SpanParentBase serves as a base class for several types of span builders.
+class SpanParentBase {
 public:
-  SpanParent(SpanBuilder& builder);
+  SpanParentBase(SpanBuilder& builder);
 
   // Make a SpanParent that causes children not to be reported anywhere.
-  SpanParent(decltype(nullptr)) {}
+  SpanParentBase(decltype(nullptr)) {}
 
-  SpanParent(kj::Maybe<kj::Own<SpanObserver>> observer): observer(kj::mv(observer)) {}
+  SpanParentBase(kj::Maybe<kj::Own<SpanObserver>> observer): observer(kj::mv(observer)) {}
 
-  SpanParent(SpanParent&& other) = default;
-  SpanParent& operator=(SpanParent&& other) = default;
-  KJ_DISALLOW_COPY(SpanParent);
-
-  SpanParent addRef();
-
-  // Create a new child span.
-  //
-  // `operationName` should be a string literal with infinite lifetime.
-  SpanBuilder newChild(
-      kj::ConstString operationName, kj::Date startTime = kj::systemPreciseCalendarClock().now());
+  SpanParentBase(SpanParentBase&& other) = default;
+  SpanParentBase& operator=(SpanParentBase&& other) = default;
+  KJ_DISALLOW_COPY(SpanParentBase);
 
   // Useful to skip unnecessary code when not observed.
   bool isObserved() {
@@ -525,9 +521,29 @@ public:
 private:
   kj::Maybe<kj::Own<SpanObserver>> observer;
 
-  friend class SpanBuilder;
+  friend class SpanParent;
   friend class lime::LimeSpanParent;
-  friend class lime::LimeSpanBuilder;
+};
+
+class SpanParent : public SpanParentBase {
+public:
+  // use inherited constructor to avoid defining empty constructors here (C++11)
+  using SpanParentBase::SpanParentBase;
+
+  SpanParent(SpanParent&& other) = default;
+  SpanParent& operator=(SpanParent&& other) = default;
+  KJ_DISALLOW_COPY(SpanParent);
+
+  SpanParent addRef();
+
+  // Create a new child span.
+  //
+  // `operationName` should be a string literal with infinite lifetime.
+  SpanBuilder newChild(kj::ConstString operationName,
+      kj::Date startTime = kj::systemPreciseCalendarClock().now());
+
+private:
+  friend class SpanBuilder;
 };
 
 // Interface for writing a span. Essentially, this is a mutable interface to a `Span` object,
@@ -611,6 +627,7 @@ private:
   kj::Maybe<Span> span;
 
   friend class SpanParent;
+  friend class SpanParentBase;
   friend class lime::LimeSpanBuilder;
   friend class lime::LimeSpanParent;
 };
@@ -634,7 +651,8 @@ public:
   virtual void report(const Span& span) = 0;
 };
 
-inline SpanParent::SpanParent(SpanBuilder& builder): observer(mapAddRef(builder.observer)) {}
+inline SpanParentBase::SpanParentBase(SpanBuilder& builder)
+    : observer(mapAddRef(builder.observer)) {}
 
 inline SpanParent SpanParent::addRef() {
   return SpanParent(mapAddRef(observer));
@@ -689,21 +707,13 @@ inline LimeSpanBuilder& LimeSpanBuilder::operator=(LimeSpanBuilder&& other) {
   return *this;
 }
 
-class LimeSpanParent final: public SpanParent {
+class LimeSpanParent final: public SpanParentBase {
 public:
-  LimeSpanParent(LimeSpanBuilder& builder);
+  using SpanParentBase::SpanParentBase;
 
-  // Make a SpanParent that causes children not to be reported anywhere.
-  LimeSpanParent(decltype(nullptr)): SpanParent(nullptr) {}
-
-  //SpanBuilder newChild(kj::ConstString operationName, kj::Date startTime) = delete;
-  //LimeSpanBuilder newChild(kj::ConstString operationName,
-  //  kj::Date startTime = kj::systemPreciseCalendarClock().now()) override;
+  // TODO: Only support fixed set of spans.
+  // TODO: Add parameter to enable unsafe time for small, restricted set of spans.
   LimeSpanBuilder newLimeChild(kj::ConstString operationName);
-  //virtual SpanBuilder newChild(kj::ConstString operationName,
-  //    kj::Date startTime = kj::systemPreciseCalendarClock().now());
-
-  LimeSpanParent(kj::Maybe<kj::Own<SpanObserver>> observer): SpanParent(kj::mv(observer)) {}
 
   LimeSpanParent(LimeSpanParent&& other) = default;
   LimeSpanParent& operator=(LimeSpanParent&& other) = default;
@@ -711,32 +721,9 @@ public:
 
   LimeSpanParent limeAddRef();
 
-  //
-  //LimeSpanParent addRef();
-
-  // TODO: Override this.
-  // Create a new child span.
-  //
-  // `operationName` should be a string literal with infinite lifetime.
-  //SpanBuilder newChild(kj::ConstString operationName,
-  //    kj::Date startTime = kj::systemPreciseCalendarClock().now());
-
-  // Useful to skip unnecessary code when not observed.
-  //bool isObserved() { return observer != kj::none; }
-
-  // Get the underlying SpanObserver representing the parent span.
-  //
-  // This is needed in particular when making outbound network requests that must be annotated with
-  // trace IDs in a way that is specific to the trace back-end being used. The caller must downcast
-  // the `SpanObserver` to the expected observer type in order to extract the trace ID.
-  //kj::Maybe<SpanObserver&> getObserver() { return observer; }
-
 private:
   friend class LimeSpanBuilder;
 };
-
-inline LimeSpanParent::LimeSpanParent(LimeSpanBuilder& builder)
-    : SpanParent(mapAddRef(builder.observer)) {}
 
 inline LimeSpanParent LimeSpanParent::limeAddRef() { return LimeSpanParent(mapAddRef(observer)); }
 
