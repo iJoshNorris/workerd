@@ -949,7 +949,7 @@ lime::LimeSpanParent IoContext::getCurrentLimeTraceSpan() {
         auto handle = value.getHandle(lock);
         jsg::Lock& js = lock;
         auto& spanParent = jsg::unwrapOpaqueRef<IoOwn<lime::LimeSpanParent>>(js.v8Isolate, handle);
-        return spanParent->limeAddRef();
+        return spanParent->addRef();
       }
     }
   }

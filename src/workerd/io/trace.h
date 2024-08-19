@@ -719,13 +719,13 @@ public:
   LimeSpanParent& operator=(LimeSpanParent&& other) = default;
   KJ_DISALLOW_COPY(LimeSpanParent);
 
-  LimeSpanParent limeAddRef();
+  LimeSpanParent addRef();
 
 private:
   friend class LimeSpanBuilder;
 };
 
-inline LimeSpanParent LimeSpanParent::limeAddRef() { return LimeSpanParent(mapAddRef(observer)); }
+inline LimeSpanParent LimeSpanParent::addRef() { return LimeSpanParent(mapAddRef(observer)); }
 
 inline LimeSpanBuilder LimeSpanParent::newLimeChild(kj::ConstString operationName) {
   KJ_LOG(WARNING, "newLimeChild", operationName);
