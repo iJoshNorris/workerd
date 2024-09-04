@@ -492,6 +492,7 @@ lime::LimeSpanBuilder& lime::LimeSpanBuilder::operator=(LimeSpanBuilder&& other)
   return *this;
 }
 
+//TODO: Replace both with shared version. Make end pure virtual.
 SpanBuilder::~SpanBuilder() noexcept(false) {
   end();
 }
@@ -618,6 +619,37 @@ void WorkerTracer::log(kj::Date timestamp, LogLevel logLevel, kj::String message
   }
   trace->bytesUsed = newSize;
   trace->logs.add(timestamp, logLevel, kj::mv(message));
+}
+
+void WorkerTracer::addSpan(const Span& span) {
+  // TODO: This is where we'll actually encode the span.
+  if (trace->exceededLogLimit) {
+    return;
+  }
+  if (pipelineLogLevel == PipelineLogLevel::NONE) {
+    return;
+  }
+  auto messager = [&](){
+    return kj::str(span.operationName);
+    /*if (span.tags.size() == 0) {
+      return kj::str(span.operationName, span.startTime, span.endTime);
+    }
+    return kj::str(span.operationName, span.startTime, span.endTime, span.tags.begin());*/
+  };
+  kj::String message = messager();//kj::str(span.operationName, span.startTime, span.endTime, span.tags);
+  //kj::String message = kj::str(span.operationName, span.startTime, span.endTime, span.tags);
+  size_t newSize = trace->bytesUsed + sizeof(Trace::Log) + span.operationName.size();
+  if (newSize > MAX_TRACE_BYTES) {
+    trace->exceededLogLimit = true;
+    trace->truncated = true;
+    // We use a JSON encoded array/string to match other console.log() recordings:
+    trace->logs.add(span.endTime, LogLevel::WARN,
+        kj::str(
+            "[\"Log size limit exceeded: More than 128KB of data (across console.log statements, exception, request metadata and headers) was logged during a single request. Subsequent data for this request will not be recorded in logs, appear when tailing this Worker's logs, or in Tail Workers.\"]"));
+    return;
+  }
+  trace->bytesUsed = newSize;
+  trace->logs.add(span.endTime, LogLevel::LOG, kj::str("[\",", span.operationName, ".\"]"));
 }
 
 void WorkerTracer::addException(
