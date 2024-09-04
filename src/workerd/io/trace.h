@@ -42,6 +42,8 @@ enum class PipelineLogLevel {
   FULL
 };
 
+struct Span;
+
 // TODO(someday): See if we can merge similar code concepts...  Trace fills a role similar to
 // MetricsCollector::Reporter::StageEvent, and Tracer fills a role similar to
 // MetricsCollector::Request.  Currently, the major differences are:
@@ -382,6 +384,7 @@ public:
   explicit WorkerTracer(PipelineLogLevel pipelineLogLevel);
   KJ_DISALLOW_COPY_AND_MOVE(WorkerTracer);
 
+  void addSpan(const Span& span);
   // Adds log line to trace.  For Spectre, timestamp should only be as accurate as JS Date.now().
   void log(kj::Date timestamp, LogLevel logLevel, kj::String message);
 
