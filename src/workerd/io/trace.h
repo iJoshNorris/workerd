@@ -42,6 +42,8 @@ enum class PipelineLogLevel {
   FULL
 };
 
+struct Span;
+
 // TODO(someday): See if we can merge similar code concepts...  Trace fills a role similar to
 // MetricsCollector::Reporter::StageEvent, and Tracer fills a role similar to
 // MetricsCollector::Request.  Currently, the major differences are:
@@ -296,6 +298,8 @@ public:
   kj::Maybe<kj::String> entrypoint;
 
   kj::Vector<Log> logs;
+  // TODO: Convert this to actually storing spans.
+  kj::Vector<Log> spans;
   // A request's trace can have multiple exceptions due to separate request/waitUntil tasks.
   kj::Vector<Exception> exceptions;
 
@@ -315,7 +319,6 @@ public:
   // Trace data is recorded outside of the JS heap.  To avoid DoS, we keep an estimate of trace
   // data size, and we stop recording if too much is used.
   size_t bytesUsed = 0;
-  // TODO(someday): Eventually, want to capture: customer-facing spans, metrics, user data
 
   // Copy content from this trace into `builder`.
   void copyTo(rpc::Trace::Builder builder);
@@ -382,6 +385,7 @@ public:
   explicit WorkerTracer(PipelineLogLevel pipelineLogLevel);
   KJ_DISALLOW_COPY_AND_MOVE(WorkerTracer);
 
+  void addSpan(const Span& span);
   // Adds log line to trace.  For Spectre, timestamp should only be as accurate as JS Date.now().
   void log(kj::Date timestamp, LogLevel logLevel, kj::String message);
 
@@ -568,8 +572,7 @@ public:
   // Finishes and submits the span. This is done implicitly by the destructor, but sometimes it's
   // useful to be able to submit early. The SpanBuilder ignores all further method calls after this
   // is invoked.
-  // TODO: Should this be pure virtual or deleted?
-  //void end();
+  virtual void end() = 0;
 
   // Useful to skip unnecessary code when not observed.
   bool isObserved() {
@@ -702,16 +705,15 @@ public:
     }
   }
 
+  LimeSpanBuilder(LimeSpanBuilder&& other) = default;
+  LimeSpanBuilder& operator=(
+      LimeSpanBuilder&& other);  // ends the existing span and starts a new one
+  KJ_DISALLOW_COPY(LimeSpanBuilder);
   ~LimeSpanBuilder() noexcept(false);
 
   void end();
 
   LimeSpanBuilder newLimeChild(kj::ConstString operationName);
-
-  LimeSpanBuilder(LimeSpanBuilder&& other) = default;
-  LimeSpanBuilder& operator=(
-      LimeSpanBuilder&& other);  // ends the existing span and starts a new one
-  KJ_DISALLOW_COPY(LimeSpanBuilder);
 };
 
 class LimeSpanParent final: public SpanParentBase {

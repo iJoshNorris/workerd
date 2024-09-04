@@ -8,11 +8,6 @@
 #include <kj/string.h>
 #include <kj/map.h>
 
-namespace kj {
-enum class HttpMethod;
-class EntropySource;
-}  // namespace kj
-
 namespace workerd::lime {
 class LimeSpanParent;
 class LimeSpanBuilder;

@@ -93,6 +93,7 @@ public:
   kj::Maybe<double> getEventTimestamp();
 
   kj::ArrayPtr<jsg::Ref<TraceLog>> getLogs();
+  kj::ArrayPtr<jsg::Ref<TraceLog>> getSpans();
   kj::ArrayPtr<jsg::Ref<TraceException>> getExceptions();
   kj::ArrayPtr<jsg::Ref<TraceDiagnosticChannelEvent>> getDiagnosticChannelEvents();
   kj::Maybe<kj::StringPtr> getScriptName();
@@ -110,6 +111,7 @@ public:
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(event, getEvent);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(eventTimestamp, getEventTimestamp);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(logs, getLogs);
+    JSG_LAZY_READONLY_INSTANCE_PROPERTY(spans, getSpans);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(exceptions, getExceptions);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(diagnosticsChannelEvents, getDiagnosticChannelEvents);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(scriptName, getScriptName);
@@ -127,6 +129,7 @@ private:
   kj::Maybe<EventInfo> eventInfo;
   kj::Maybe<double> eventTimestamp;
   kj::Array<jsg::Ref<TraceLog>> logs;
+  kj::Array<jsg::Ref<TraceLog>> spans;
   kj::Array<jsg::Ref<TraceException>> exceptions;
   kj::Array<jsg::Ref<TraceDiagnosticChannelEvent>> diagnosticChannelEvents;
   kj::Maybe<kj::String> scriptName;

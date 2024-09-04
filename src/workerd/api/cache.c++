@@ -516,8 +516,6 @@ jsg::Promise<bool> Cache::delete_(
 kj::Own<kj::HttpClient> Cache::getHttpClient(
     IoContext& context, kj::Maybe<kj::String> cfBlobJson, kj::ConstString operationName) {
   auto span = context.makeTraceSpan(kj::mv(operationName));
-  // TODO: New tracing should at least propagate the span here, perhaps also create a new one here.
-  // auto limeSpan = context.getCurrentTraceSpan();
 
   auto cacheClient = context.getCacheClient();
   auto httpClient = cacheName

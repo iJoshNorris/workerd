@@ -742,8 +742,6 @@ public:
   // given trace span, or the current request's trace span, if no span is given.
   jsg::AsyncContextFrame::StorageScope makeAsyncTraceScope(
       Worker::Lock& lock, kj::Maybe<SpanParent> spanParent = kj::none) KJ_WARN_UNUSED_RESULT;
-  jsg::AsyncContextFrame::StorageScope makeAsyncLimeTraceScope(
-      Worker::Lock& lock, kj::Maybe<lime::LimeSpanParent> spanParent = kj::none) KJ_WARN_UNUSED_RESULT;
 
   // Returns the current span being recorded.  If called while the JS lock is held, uses the trace
   // information from the current async context, if available.

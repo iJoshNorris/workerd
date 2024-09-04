@@ -14,6 +14,7 @@ namespace workerd {
 // want this number to be big enough to be useful for tracing, but small enough to make it hard to
 // DoS the C++ heap -- keeping in mind we can record a trace per handler run during a request.
 static constexpr size_t MAX_TRACE_BYTES = 128 * 1024;
+static constexpr size_t MAX_LIME_SPANS = 1024;
 
 namespace {
 
@@ -274,6 +275,10 @@ void Trace::copyTo(rpc::Trace::Builder builder) {
     for (auto i: kj::indices(logs)) {
       logs[i].copyTo(list[i]);
     }
+    auto spanList = builder.initSpans(spans.size());
+    for (auto i: kj::indices(spans)) {
+      spans[i].copyTo(spanList[i]);
+    }
   }
 
   {
@@ -382,6 +387,7 @@ void Trace::mergeFrom(rpc::Trace::Reader reader, PipelineLogLevel pipelineLogLev
   // "full", so we may need to filter out the extra data after receiving the traces back.
   if (pipelineLogLevel != PipelineLogLevel::NONE) {
     logs.addAll(reader.getLogs());
+    spans.addAll(reader.getSpans());
     exceptions.addAll(reader.getExceptions());
     diagnosticChannelEvents.addAll(reader.getDiagnosticChannelEvents());
   }
@@ -618,6 +624,39 @@ void WorkerTracer::log(kj::Date timestamp, LogLevel logLevel, kj::String message
   }
   trace->bytesUsed = newSize;
   trace->logs.add(timestamp, logLevel, kj::mv(message));
+}
+
+void WorkerTracer::addSpan(const Span& span) {
+  // This is where we'll actually encode the span.
+  if (trace->exceededLogLimit) {
+    return;
+  }
+  if (pipelineLogLevel == PipelineLogLevel::NONE) {
+    return;
+  }
+  auto messager = [&](){
+    return kj::str(span.operationName);
+    /*if (span.tags.size() == 0) {
+      return kj::str(span.operationName, span.startTime, span.endTime);
+    }
+    return kj::str(span.operationName, span.startTime, span.endTime, span.tags.begin());*/
+  };
+  kj::String message = messager();//kj::str(span.operationName, span.startTime, span.endTime, span.tags);
+  //kj::String message = kj::str(span.operationName, span.startTime, span.endTime, span.tags);
+  size_t span_size = kj::max(sizeof(Trace::Log) + span.operationName.size(), MAX_TRACE_BYTES / MAX_LIME_SPANS);
+  size_t newSize = trace->bytesUsed + span_size;
+  // We continue to enforce the trace size limit. Also make each span count at least 128B to enforce span limit.
+  if (newSize > MAX_TRACE_BYTES) {
+    trace->exceededLogLimit = true;
+    trace->truncated = true;
+    // We use a JSON encoded array/string to match other console.log() recordings:
+    trace->logs.add(span.endTime, LogLevel::WARN,
+        kj::str(
+            "[\"Log size limit exceeded: More than 128KB of data (across console.log statements, exception, request metadata and headers) was logged during a single request. Subsequent data for this request will not be recorded in logs, appear when tailing this Worker's logs, or in Tail Workers.\"]"));
+    return;
+  }
+  trace->bytesUsed = newSize;
+  trace->spans.add(span.endTime, LogLevel::LOG, kj::str("[\",", span.operationName, ".\"]"));
 }
 
 void WorkerTracer::addException(

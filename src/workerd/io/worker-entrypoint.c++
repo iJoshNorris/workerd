@@ -271,7 +271,6 @@ kj::Promise<void> WorkerEntrypoint::request(kj::HttpMethod method,
     TRACE_EVENT_END("workerd", PERFETTO_TRACK_FROM_POINTER(&context));
     TRACE_EVENT("workerd", "WorkerEntrypoint::request() run", PERFETTO_FLOW_FROM_POINTER(this));
     jsg::AsyncContextFrame::StorageScope traceScope = context.makeAsyncTraceScope(lock);
-    jsg::AsyncContextFrame::StorageScope limeTraceScope = context.makeAsyncLimeTraceScope(lock);
 
     return lock.getGlobalScope().request(method, url, headers, requestBody, wrappedResponse,
         cfBlobJson, lock, lock.getExportedHandler(entrypointName, context.getActor()));
@@ -489,7 +488,6 @@ kj::Promise<WorkerInterface::ScheduledResult> WorkerEntrypoint::runScheduled(
                       &metrics = incomingRequest->getMetrics()](Worker::Lock& lock) mutable {
     TRACE_EVENT("workerd", "WorkerEntrypoint::runScheduled() run");
     jsg::AsyncContextFrame::StorageScope traceScope = context.makeAsyncTraceScope(lock);
-    jsg::AsyncContextFrame::StorageScope limeTraceScope = context.makeAsyncLimeTraceScope(lock);
 
     lock.getGlobalScope().startScheduled(
         scheduledTime, cron, lock, lock.getExportedHandler(entrypointName, context.getActor()));

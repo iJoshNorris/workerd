@@ -394,7 +394,6 @@ void IoContext::addTask(kj::Promise<void> promise) {
     // is not even executed in the actor case but I'm leaving the check in just in case that ever
     // changes.)
     auto& metrics = getMetrics();
-    //TODO
     if (metrics.getSpan().isObserved()) {
       metrics.addedContextTask();
       promise = promise.attach(
@@ -410,7 +409,6 @@ void IoContext::addWaitUntil(kj::Promise<void> promise) {
     // This metric won't work correctly in actors since it's being tracked per-request, but tasks
     // are not tied to requests in actors. So we just skip it in actors.
     auto& metrics = getMetrics();
-    //TODO
     if (metrics.getSpan().isObserved()) {
       metrics.addedWaitUntilTask();
       promise = promise.attach(kj::defer(
@@ -897,21 +895,6 @@ jsg::AsyncContextFrame::StorageScope IoContext::makeAsyncTraceScope(
   auto spanHandle = jsg::wrapOpaque(js.v8Context(), kj::mv(ioOwnSpanParent));
   return jsg::AsyncContextFrame::StorageScope(
       js, lock.getTraceAsyncContextKey(), js.v8Ref(spanHandle));
-}
-
-jsg::AsyncContextFrame::StorageScope IoContext::makeAsyncLimeTraceScope(
-    Worker::Lock& lock, kj::Maybe<lime::LimeSpanParent> spanParentOverride) {
-  jsg::Lock& js = lock;
-  kj::Own<lime::LimeSpanParent> spanParent;
-  KJ_IF_SOME (spo, kj::mv(spanParentOverride)) {
-    spanParent = kj::heap(kj::mv(spo));
-  } else {
-    spanParent = kj::heap(getMetrics().getLimeSpan());
-  }
-  auto ioOwnSpanParent = IoContext::current().addObject(kj::mv(spanParent));
-  auto spanHandle = jsg::wrapOpaque(js.v8Context(), kj::mv(ioOwnSpanParent));
-  return jsg::AsyncContextFrame::StorageScope(
-      js, lock.getLimeTraceAsyncContextKey(), js.v8Ref(spanHandle));
 }
 
 SpanParent IoContext::getCurrentTraceSpan() {
