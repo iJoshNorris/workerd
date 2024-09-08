@@ -916,17 +916,8 @@ SpanParent IoContext::getCurrentTraceSpan() {
 }
 
 lime::LimeSpanParent IoContext::getCurrentLimeTraceSpan() {
-  // If called while lock is held, try to use the trace info stored in the async context.
-  KJ_IF_SOME (lock, currentLock) {
-    KJ_IF_SOME (frame, jsg::AsyncContextFrame::current(lock)) {
-      KJ_IF_SOME (value, frame.get(lock.getLimeTraceAsyncContextKey())) {
-        auto handle = value.getHandle(lock);
-        jsg::Lock& js = lock;
-        auto& spanParent = jsg::unwrapOpaqueRef<IoOwn<lime::LimeSpanParent>>(js.v8Isolate, handle);
-        return spanParent->addRef();
-      }
-    }
-  }
+  // TODO(later): Add support for retrieving span from storage scope lock, as with Jaeger tracing,
+  // for more accurate context for getting span.
 
   // If async context is unavailable (unset, or JS lock is not held), fall back to heuristic of
   // using the trace info from the most recent active request.

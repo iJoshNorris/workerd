@@ -1011,8 +1011,7 @@ Worker::Isolate::Isolate(kj::Own<Api> apiParam,
       metrics(kj::mv(metricsParam)),
       impl(kj::heap<Impl>(*api, *metrics, *limitEnforcer, inspectorPolicy)),
       weakIsolateRef(WeakIsolateRef::wrap(this)),
-      traceAsyncContextKey(kj::refcounted<jsg::AsyncContextFrame::StorageKey>()),
-      limeTraceAsyncContextKey(kj::refcounted<jsg::AsyncContextFrame::StorageKey>()) {
+      traceAsyncContextKey(kj::refcounted<jsg::AsyncContextFrame::StorageKey>()) {
   metrics->created();
   // We just created our isolate, so we don't need to use Isolate::Impl::Lock (nor an async lock).
   jsg::runInV8Stack([&](jsg::V8StackScope& stackScope) {
@@ -1309,7 +1308,6 @@ Worker::Isolate::~Isolate() noexcept(false) {
     metrics->teardownLockAcquired();
     auto inspector = kj::mv(impl->inspector);
     auto dropTraceAsyncContextKey = kj::mv(traceAsyncContextKey);
-    auto dropLimeTraceAsyncContextKey = kj::mv(limeTraceAsyncContextKey);
   });
 }
 
@@ -1891,12 +1889,6 @@ jsg::AsyncContextFrame::StorageKey& Worker::Lock::getTraceAsyncContextKey() {
   // const_cast OK because we are a lock on this isolate.
   auto& isolate = const_cast<Isolate&>(worker.getIsolate());
   return *(isolate.traceAsyncContextKey);
-}
-
-jsg::AsyncContextFrame::StorageKey& Worker::Lock::getLimeTraceAsyncContextKey() {
-  // const_cast OK because we are a lock on this isolate.
-  auto& isolate = const_cast<Isolate&>(worker.getIsolate());
-  return *(isolate.limeTraceAsyncContextKey);
 }
 
 bool Worker::Lock::isInspectorEnabled() {

@@ -23,11 +23,6 @@ enum class HttpMethod;
 class EntropySource;
 }  // namespace kj
 
-namespace workerd::lime {
-class LimeSpanParent;
-class LimeSpanBuilder;
-}  // namespace workerd::lime
-
 namespace workerd {
 
 using kj::byte;
@@ -532,7 +527,7 @@ private:
   friend class lime::LimeSpanParent;
 };
 
-class SpanParent: public SpanParentBase {
+class SpanParent final : public SpanParentBase {
 public:
   // use inherited constructor (C++ 11) instead of defining empty constructors
   using SpanParentBase::SpanParentBase;
@@ -548,9 +543,6 @@ public:
   // `operationName` should be a string literal with infinite lifetime.
   SpanBuilder newChild(
       kj::ConstString operationName, kj::Date startTime = kj::systemPreciseCalendarClock().now());
-
-private:
-  friend class SpanBuilder;
 };
 
 // Interface for writing a span. Essentially, this is a mutable interface to a `Span` object,
@@ -615,7 +607,7 @@ private:
   friend class lime::LimeSpanBuilder;
 };
 
-class SpanBuilder: public SpanBuilderBase {
+class SpanBuilder final : public SpanBuilderBase {
 public:
   using SpanBuilderBase::SpanBuilderBase;
 
@@ -647,9 +639,6 @@ public:
   // `operationName` should be a string literal with infinite lifetime.
   SpanBuilder newChild(
       kj::ConstString operationName, kj::Date startTime = kj::systemPreciseCalendarClock().now());
-
-private:
-  friend class SpanParentBase;
 };
 
 // Abstract interface for observing trace spans reported by the runtime. Different
@@ -689,6 +678,7 @@ inline SpanBuilder SpanBuilder::newChild(kj::ConstString operationName, kj::Date
 }
 
 // Lime tracing
+// TODO: Do we need this namespace?
 namespace lime {
 class LimeSpanBuilder final: public SpanBuilderBase {
 public:
@@ -730,9 +720,6 @@ public:
   KJ_DISALLOW_COPY(LimeSpanParent);
 
   LimeSpanParent addRef();
-
-private:
-  friend class LimeSpanBuilder;
 };
 
 inline LimeSpanParent LimeSpanParent::addRef() {
