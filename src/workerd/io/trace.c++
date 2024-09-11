@@ -271,13 +271,13 @@ Trace::~Trace() noexcept(false) {}
 
 void Trace::copyTo(rpc::Trace::Builder builder) {
   {
-    auto list = builder.initLogs(logs.size());
+    auto list = builder.initLogs(logs.size() + spans.size());
+    KJ_LOG(WARNING, logs.size(), spans.size());
     for (auto i: kj::indices(logs)) {
       logs[i].copyTo(list[i]);
     }
-    auto spanList = builder.initSpans(spans.size());
     for (auto i: kj::indices(spans)) {
-      spans[i].copyTo(spanList[i]);
+      spans[i].copyTo(list[i]);
     }
   }
 
@@ -387,7 +387,6 @@ void Trace::mergeFrom(rpc::Trace::Reader reader, PipelineLogLevel pipelineLogLev
   // "full", so we may need to filter out the extra data after receiving the traces back.
   if (pipelineLogLevel != PipelineLogLevel::NONE) {
     logs.addAll(reader.getLogs());
-    spans.addAll(reader.getSpans());
     exceptions.addAll(reader.getExceptions());
     diagnosticChannelEvents.addAll(reader.getDiagnosticChannelEvents());
   }
@@ -623,7 +622,50 @@ void WorkerTracer::log(kj::Date timestamp, LogLevel logLevel, kj::String message
     return;
   }
   trace->bytesUsed = newSize;
+  // TODO: Why does adding to spans instead not work properly?
   trace->logs.add(timestamp, logLevel, kj::mv(message));
+}
+
+void WorkerTracer::addSpanTag(const TagMap::Entry* tag, const kj::Date& endTime) {
+  // This is where we'll actually encode the span.
+  if (trace->exceededLogLimit) {
+    return;
+  }
+  if (pipelineLogLevel == PipelineLogLevel::NONE) {
+    return;
+  }
+  auto messager = [&](){
+    KJ_SWITCH_ONEOF(tag->value) {
+      KJ_CASE_ONEOF(str, kj::String) {
+        return kj::str(str);
+      }
+      KJ_CASE_ONEOF(val, long) {
+        return kj::str(val);
+      }
+      KJ_CASE_ONEOF(val, double) {
+        return kj::str(val);
+      }
+      KJ_CASE_ONEOF(val, bool) {
+        return kj::str(val);
+      }
+    }
+    KJ_UNREACHABLE;
+  };
+  kj::String message = kj::str("tag:"_kj, tag->key, " => "_kj, messager());
+//  kj::String message = kj::str("tag:"_kj, tag->key, "=>"_kj, tag->value);
+  size_t newSize = trace->bytesUsed + sizeof(Trace::Log) + message.size();
+  // We continue to enforce the trace size limit. Also make each span count at least 128B to enforce span limit.
+  if (newSize > MAX_TRACE_BYTES) {
+    trace->exceededLogLimit = true;
+    trace->truncated = true;
+    // We use a JSON encoded array/string to match other console.log() recordings:
+    trace->logs.add(endTime, LogLevel::WARN,
+        kj::str(
+            "[\"Log size limit exceeded: More than 128KB of data (across console.log statements, exception, request metadata and headers) was logged during a single request. Subsequent data for this request will not be recorded in logs, appear when tailing this Worker's logs, or in Tail Workers.\"]"));
+    return;
+  }
+  trace->bytesUsed = newSize;
+  trace->logs.add(endTime, LogLevel::LOG, kj::str("[\",", message, ".\"]"));
 }
 
 void WorkerTracer::addSpan(const Span& span) {
@@ -634,15 +676,13 @@ void WorkerTracer::addSpan(const Span& span) {
   if (pipelineLogLevel == PipelineLogLevel::NONE) {
     return;
   }
-  auto messager = [&](){
-    return kj::str(span.operationName);
     /*if (span.tags.size() == 0) {
       return kj::str(span.operationName, span.startTime, span.endTime);
     }
     return kj::str(span.operationName, span.startTime, span.endTime, span.tags.begin());*/
-  };
-  kj::String message = messager();//kj::str(span.operationName, span.startTime, span.endTime, span.tags);
-  //kj::String message = kj::str(span.operationName, span.startTime, span.endTime, span.tags);
+  if (span.tags.size()) {
+    addSpanTag(span.tags.begin(), span.endTime);
+  }
   size_t span_size = kj::max(sizeof(Trace::Log) + span.operationName.size(), MAX_TRACE_BYTES / MAX_LIME_SPANS);
   size_t newSize = trace->bytesUsed + span_size;
   // We continue to enforce the trace size limit. Also make each span count at least 128B to enforce span limit.
@@ -656,7 +696,7 @@ void WorkerTracer::addSpan(const Span& span) {
     return;
   }
   trace->bytesUsed = newSize;
-  trace->spans.add(span.endTime, LogLevel::LOG, kj::str("[\",", span.operationName, ".\"]"));
+  trace->logs.add(span.endTime, LogLevel::LOG, kj::str("[\",", span.operationName, ".\"]"));
 }
 
 void WorkerTracer::addException(

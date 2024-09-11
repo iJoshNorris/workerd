@@ -73,11 +73,14 @@ jsg::V8Ref<v8::Object> getTraceLogMessage(jsg::Lock& js, const Trace::Log& log) 
 }
 
 kj::Array<jsg::Ref<TraceLog>> getTraceLogs(jsg::Lock& js, const Trace& trace) {
-  return KJ_MAP(x, trace.logs) -> jsg::Ref<TraceLog> { return jsg::alloc<TraceLog>(js, trace, x); };
-}
-
-kj::Array<jsg::Ref<TraceLog>> getTraceSpans(jsg::Lock& js, const Trace& trace) {
-  return KJ_MAP(x, trace.spans) -> jsg::Ref<TraceLog> { return jsg::alloc<TraceLog>(js, trace, x); };
+  auto builder = kj::heapArrayBuilder<jsg::Ref<TraceLog>>(trace.logs.size() + trace.spans.size());
+  for (auto i: kj::indices(trace.logs)) {
+    builder.add([&]() -> jsg::Ref<TraceLog> { return jsg::alloc<TraceLog>(js, trace, trace.logs[i]); }());
+  }
+  for (auto i: kj::indices(trace.spans)) {
+    builder.add([&]() -> jsg::Ref<TraceLog> { return jsg::alloc<TraceLog>(js, trace, trace.spans[i]); }());
+  }
+  return builder.finish();
 }
 
 kj::Array<jsg::Ref<TraceDiagnosticChannelEvent>> getTraceDiagnosticChannelEvents(
@@ -191,7 +194,6 @@ TraceItem::TraceItem(jsg::Lock& js, const Trace& trace)
     : eventInfo(getTraceEvent(js, trace)),
       eventTimestamp(getTraceTimestamp(trace)),
       logs(getTraceLogs(js, trace)),
-      spans(getTraceSpans(js, trace)),
       exceptions(getTraceExceptions(trace)),
       diagnosticChannelEvents(getTraceDiagnosticChannelEvents(js, trace)),
       scriptName(trace.scriptName.map([](auto& name) { return kj::str(name); })),
@@ -245,10 +247,6 @@ kj::Maybe<double> TraceItem::getEventTimestamp() {
 
 kj::ArrayPtr<jsg::Ref<TraceLog>> TraceItem::getLogs() {
   return logs;
-}
-
-kj::ArrayPtr<jsg::Ref<TraceLog>> TraceItem::getSpans() {
-  return spans;
 }
 
 kj::ArrayPtr<jsg::Ref<TraceException>> TraceItem::getExceptions() {
@@ -702,9 +700,6 @@ void TraceItem::visitForMemoryInfo(jsg::MemoryTracker& tracker) const {
   }
   for (const auto& log: logs) {
     tracker.trackField("log", log);
-  }
-  for (const auto& span: spans) {
-    tracker.trackField("span", span);
   }
   for (const auto& exception: exceptions) {
     tracker.trackField("exception", exception);

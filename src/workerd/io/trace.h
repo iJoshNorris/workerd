@@ -384,6 +384,10 @@ public:
   KJ_DISALLOW_COPY_AND_MOVE(WorkerTracer);
 
   void addSpan(const Span& span);
+  using TagValue = kj::OneOf<bool, int64_t, double, kj::String>;
+  using TagMap = kj::HashMap<kj::ConstString, TagValue>;
+  using Tag = TagMap::Entry;
+  void addSpanTag(const TagMap::Entry* tag, const kj::Date& endTime);
   // Adds log line to trace.  For Spectre, timestamp should only be as accurate as JS Date.now().
   void log(kj::Date timestamp, LogLevel logLevel, kj::String message);
 
