@@ -11,4 +11,8 @@
         "BAZEL_VC" : "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC",
         "BAZEL_WINSDK_FULL_VERSION" : "10.0.22000.0",
     },
+    "files.associations": {
+        "__config": "cpp",
+        "iostream": "cpp"
+    },
 }

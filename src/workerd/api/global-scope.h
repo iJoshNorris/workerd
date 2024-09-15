@@ -395,6 +395,8 @@ public:
   kj::String btoa(jsg::Lock& js, jsg::JsValue data);
   jsg::JsString atob(jsg::Lock& js, kj::String data);
 
+  void fuzzilli(jsg::Lock& js, jsg::Arguments<jsg::Value> args);
+
   void queueMicrotask(jsg::Lock& js, v8::Local<v8::Function> task);
 
   struct StructuredCloneOptions {
@@ -479,6 +481,9 @@ public:
     JSG_METHOD(reportError);
 
     JSG_METHOD(fetch);
+
+    //TODO: only enable w/ define
+    JSG_METHOD(fuzzilli);
 
     // Unlike regular interface attributes, which Web IDL requires us to
     // implement as prototype properties, the global scope is special --

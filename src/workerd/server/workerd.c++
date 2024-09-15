@@ -18,11 +18,14 @@
 #include <sys/stat.h>
 #include "server.h"
 #include <workerd/jsg/setup.h>
+#include <workerd/api/unsafe.h>
 #include <openssl/rand.h>
 #include <workerd/io/compatibility-date.capnp.h>
 #include <workerd/io/supported-compatibility-date.capnp.h>
 #include <workerd/util/autogate.h>
 #include <pyodide/generated/pyodide_extra.capnp.h>
+#include <sys/mman.h>
+#include <errno.h>
 
 #ifdef WORKERD_EXPERIMENTAL_ENABLE_WEBGPU
 #include <workerd/api/gpu/gpu.h>
@@ -672,6 +675,8 @@ public:
               "run the server")
           .addSubCommand("compile", KJ_BIND_METHOD(*this, getCompile),
               "create a self-contained binary")
+          .addSubCommand("fuzz", KJ_BIND_METHOD(*this, getFuzz),
+              "run reprl for fuzzing")
           .addSubCommand("test", KJ_BIND_METHOD(*this, getTest),
               "run unit tests")
           .addSubCommand("pyodide-lock", KJ_BIND_METHOD(*this, getPyodideLock),
@@ -814,6 +819,17 @@ public:
         .callAfterParsing(CLI_METHOD(test))
         .build();
   }
+
+  kj::MainFunc getFuzz() {
+    fprintf(stderr,"Hello from getFuzz...");
+    auto builder = kj::MainBuilder(context, getVersionString(),"Runs fuzz tests based on a config.");
+
+    return addServeOrTestOptions(addConfigParsingOptionsNoConstName(builder))
+        .callAfterParsing(CLI_METHOD(runFuzz))
+        .build();
+  }
+
+
 
   kj::MainFunc getCompile() {
     auto builder = kj::MainBuilder(context, getVersionString(),
@@ -1272,6 +1288,112 @@ public:
     });
   }
 
+
+struct TestContext : public jsg::Object {
+  // Inherit from jsg::Object to ensure proper GC and memory tracking
+
+  JSG_RESOURCE_TYPE(TestContext) {
+    // Declare any methods or properties of TestContext, if necessary
+  }
+};
+
+// Define the isolate type with the TestContext
+JSG_DECLARE_ISOLATE_TYPE(TestIsolate, TestContext);
+
+void runFuzz() {
+    // Step 1: Initialize the V8 system and platform.
+    jsg::V8System v8System;  // Initializes the V8 engine system with the default platform.
+
+    // Step 2: Set up the Isolate.
+    TestIsolate isolate(v8System, kj::heap<jsg::IsolateObserver>());
+
+    // Step 3: Lock the Isolate and execute the REPRL loop.
+    isolate.runInLockScope([&](TestIsolate::Lock& js) {
+        js.setAllowEval(true);
+
+        // Define the REPRL file descriptors
+        #define REPRL_CRFD 100
+        #define REPRL_CWFD 101
+        #define REPRL_DRFD 102
+        #define REPRL_DWFD 103
+
+        #define CHECK(condition) \
+        do { \
+            if (!(condition)) { \
+                fprintf(stderr, "Error: %s:%d: condition failed: %s\n", __FILE__, __LINE__, #condition); \
+                exit(EXIT_FAILURE); \
+            } \
+        } while (0)
+
+        char helo[] = "HELO";
+        if (write(REPRL_CWFD, helo, 4) != 4 || read(REPRL_CRFD, helo, 4) != 4) {
+            printf("Invalid HELO response from parent\n");
+            fflush(stdout);
+        }
+
+        if (memcmp(helo, "HELO", 4) != 0) {
+            printf("Invalid response from parent\n");
+        }
+
+        printf("Hello REPRL worked\n");
+        fflush(stdout);
+
+        do {
+            size_t script_size = 0;
+            unsigned action = 0;
+            ssize_t nread = read(REPRL_CRFD, &action, 4);
+            fflush(0);
+            fflush(stderr);
+            if (nread != 4 || action != 0x63657865) { // 'exec'
+                fprintf(stderr, "Unknown action: %x\n", action);
+                _exit(-1);
+            }
+
+            CHECK(read(REPRL_CRFD, &script_size, 8) == 8);
+
+            char* script = (char*)malloc(script_size + 1);
+            char* source_buffer_tail = script;
+            ssize_t remaining = (ssize_t) script_size;
+
+            printf("Reading in script with size: %zu\n",script_size);
+            fflush(stdout);
+
+            while (remaining > 0) {
+              ssize_t rv = read(REPRL_DRFD, source_buffer_tail, (size_t) remaining);
+              if (rv <= 0) {
+                fprintf(stderr, "Failed to load script\n");
+                _exit(-1);
+              }
+              remaining -= rv;
+              source_buffer_tail += rv;
+            }
+
+            script[script_size] = '\0';
+
+            printf("Executing script...\n");
+            fflush(stdout);
+
+            // Evaluate the script
+            int status = 0;
+            try {
+                auto compiled = workerd::jsg::NonModuleScript::compile(script, js, "reprl"_kj);
+                auto val = workerd::jsg::JsValue(compiled.runAndReturn(js.v8Context()));
+            } catch (const std::exception& e) {
+                fprintf(stderr, "Script execution error: %s\n", e.what());
+                _exit(-1);
+            }
+
+            fflush(stdout);
+            fflush(stderr);
+
+            CHECK(write(REPRL_CWFD, &status, 4) == 4);
+
+        } while (true);
+    });
+
+    _exit(0);
+}
+
 #if _WIN32
   void reloadFromConfigChange() {
     KJ_UNREACHABLE("Watching is not yet implemented on Windows");
@@ -1507,13 +1629,98 @@ private:
 
 }  // namespace workerd::server
 
+
+//
+// BEGIN FUZZING CODE
+//
+
+#define SHM_SIZE 0x200000
+#define MAX_EDGES ((SHM_SIZE - 4) * 8)
+
+struct shmem_data {
+    uint32_t num_edges;
+    unsigned char edges[];
+};
+
+struct shmem_data* __shmem;
+uint32_t *__edges_start, *__edges_stop;
+
+void __sanitizer_cov_reset_edgeguards() {
+    uint64_t N = 0;
+    for (uint32_t *x = __edges_start; x < __edges_stop && N < MAX_EDGES; x++)
+        *x = ++N;
+}
+
+extern "C" void __sanitizer_cov_trace_pc_guard_init(uint32_t *start, uint32_t *stop) {
+    // Avoid duplicate initialization
+    if (start == stop || *start)
+        return;
+
+    if (__edges_start != NULL || __edges_stop != NULL) {
+        fprintf(stderr, "Coverage instrumentation is only supported for a single module\n");
+        _exit(-1);
+    }
+
+    __edges_start = start;
+    __edges_stop = stop;
+
+    // Map the shared memory region
+    const char* shm_key = getenv("SHM_ID");
+    if (!shm_key) {
+        puts("[COV] no shared memory bitmap available, skipping");
+        __shmem = (struct shmem_data*) malloc(SHM_SIZE);
+    } else {
+        int fd = shm_open(shm_key, O_RDWR, S_IREAD | S_IWRITE);
+        if (fd <= -1) {
+            fprintf(stderr, "Failed to open shared memory region: %s\n", strerror(errno));
+            _exit(-1);
+        }
+
+        __shmem = (struct shmem_data*) mmap(0, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (__shmem == MAP_FAILED) {
+            fprintf(stderr, "Failed to mmap shared memory region\n");
+            _exit(-1);
+        }
+    }
+
+    __sanitizer_cov_reset_edgeguards();
+
+    __shmem->num_edges = stop - start;
+    printf("[COV] edge counters initialized. Shared memory: %s with %u edges\n", shm_key, __shmem->num_edges);
+}
+
+extern "C" void __sanitizer_cov_trace_pc_guard(uint32_t *guard) {
+    // There's a small race condition here: if this function executes in two threads for the same
+    // edge at the same time, the first thread might disable the edge (by setting the guard to zero)
+    // before the second thread fetches the guard value (and thus the index). However, our
+    // instrumentation ignores the first edge (see libcoverage.c) and so the race is unproblematic.
+    uint32_t index = *guard;
+    // If this function is called before coverage instrumentation is properly initialized we want to return early.
+    if (!index) return;
+    __shmem->edges[index / 8] |= 1 << (index % 8);
+    *guard = 0;
+}
+
+#define CHECK(condition)                    \
+    do {                                    \
+        if (!(condition)) {                 \
+            fprintf(stderr, "Error: %s:%d: condition failed: %s\n", __FILE__, __LINE__, #condition); \
+            exit(EXIT_FAILURE);             \
+        }                                   \
+    } while (0)
+
+
+//
+// END FUZZING CODE
+//
+
 int main(int argc, char* argv[]) {
   // TODO: this is reeeeaaally bad
   argc = 4;
   char *new_argv[5];
   new_argv[0] = "workerd";
   new_argv[1] = "test";
-  new_argv[2] = "/home/garrett/workerd/samples/reprl/config.capnp";
+  new_argv[2] = "/home/mschwarzl/projects/workerd/samples/reprl/config.capnp";
   new_argv[3] = "--experimental";
   new_argv[4] = nullptr;
   argv = new_argv;
