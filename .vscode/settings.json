@@ -13,6 +13,8 @@
     },
     "files.associations": {
         "__config": "cpp",
-        "iostream": "cpp"
+        "iostream": "cpp",
+        "functional": "cpp",
+        "__locale": "cpp"
     },
 }
