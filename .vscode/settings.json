@@ -15,6 +15,11 @@
         "__config": "cpp",
         "iostream": "cpp",
         "functional": "cpp",
-        "__locale": "cpp"
+        "__locale": "cpp",
+        "sstream": "cpp",
+        "regex": "cpp",
+        "strstream": "cpp",
+        "new": "cpp",
+        "exception": "cpp"
     },
 }
