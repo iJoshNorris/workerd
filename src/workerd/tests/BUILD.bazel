@@ -78,3 +78,18 @@ wd_cc_benchmark(
         "//src/workerd/util",
     ],
 )
+
+cc_binary(
+    name = "test-reprl",
+    srcs = [
+        "test-reprl.c++",
+        "libreprl/libreprl.c",
+        "libreprl/libreprl.h"
+    ],
+    includes = [
+        "libreprl",
+    ],
+    copts = [
+        "-Ilibreprl",
+    ],
+)
