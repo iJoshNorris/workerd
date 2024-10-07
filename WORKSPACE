@@ -570,3 +570,10 @@ http_file(
     integrity = "sha256-4V2KXVoX5Ny1J7ABfVRx0nAHpAGegykhzac7zW3nK0k=",
     url = "https://github.com/npaun/bins/releases/download/llvm-18.1.8/llvm-18.1.8-windows-amd64-clang-format.exe",
 )
+
+load("@//:build/wpt_tests.bzl", "wpt_tests")
+
+wpt_tests(
+    name = "wpt_tests",
+    url = "https://github.com/web-platform-tests/wpt/archive/refs/tags/merge_pr_48497.tar.gz",
+)
