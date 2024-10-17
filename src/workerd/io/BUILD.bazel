@@ -2,6 +2,7 @@ load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("//:build/capnp_embed.bzl", "capnp_embed")
 load("//:build/kj_test.bzl", "kj_test")
 load("//:build/wd_capnp_library.bzl", "wd_capnp_library")
+load("//:build/wd_cc_embed.bzl", "wd_cc_embed")
 load("//:build/wd_cc_library.bzl", "wd_cc_library")
 
 # Flag to enable WebGPU support via the Dawn library
@@ -250,6 +251,11 @@ genrule(
 capnp_embed(
     name = "trimmed-supported-compatibility-date",
     src = ":trimmed-supported-compatibility-date-gen",
+)
+
+wd_cc_embed(
+    name = "trim_compatibility_date",
+    embed_file = ":trimmed-supported-compatibility-date.txt",
 )
 
 wd_capnp_library(src = "cdp.capnp")

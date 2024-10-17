@@ -6,6 +6,7 @@ load("@capnp-cpp//src/capnp:cc_capnp_library.bzl", "cc_capnp_library")
 load("//:build/capnp_embed.bzl", "capnp_embed")
 load("//:build/js_file.bzl", "js_file")
 load("//:build/pyodide_bucket.bzl", "PYODIDE_PACKAGE_BUCKET_URL")
+load("//:build/wd_cc_embed.bzl", "wd_cc_embed")
 load("//:build/wd_ts_bundle.bzl", "wd_ts_bundle_capnp")
 
 copy_file(
@@ -39,12 +40,6 @@ copy_file(
 )
 
 capnp_embed(
-    name = "pyodide_extra_file_embed",
-    src = "generated/pyodide_extra.capnp",
-    deps = ["pyodide_extra_capnp_file"],
-)
-
-capnp_embed(
     name = "pyodide_lock_file_embed",
     src = "generated/pyodide-lock.json",
     deps = ["pyodide-lock.js@rule"],
@@ -55,11 +50,15 @@ cc_capnp_library(
     srcs = ["generated/pyodide_extra.capnp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":pyodide_extra_file_embed",
         ":pyodide_lock_file_embed",
         ":pyodide_packages_archive_embed",
         ":python_entrypoint_file_embed",
     ],
+)
+
+wd_cc_embed(
+    name = "embed_1",
+    embed_file = ":generated/pyodide_packages.tar",
 )
 
 copy_file(
