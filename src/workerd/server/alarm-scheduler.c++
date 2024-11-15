@@ -1,8 +1,11 @@
+#include <__random/uniform_int_distribution.h>
 // Copyright (c) 2023 Cloudflare, Inc.
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
 #include "alarm-scheduler.h"
+
+#include <cmath>
 
 namespace workerd::server {
 

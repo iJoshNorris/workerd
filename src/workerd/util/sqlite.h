@@ -5,10 +5,13 @@
 #pragma once
 
 #include <kj/filesystem.h>
+#include <kj/function.h>
 #include <kj/list.h>
 #include <kj/one-of.h>
+#include <kj/string.h>
 
-#include <utility>
+//#include <utility>
+#include <__utility/integer_sequence.h>
 
 struct sqlite3;
 struct sqlite3_vfs;
