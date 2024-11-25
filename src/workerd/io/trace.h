@@ -5,6 +5,7 @@
 #pragma once
 
 #include <workerd/io/outcome.capnp.h>
+#include <workerd/io/trace.capnp.h>
 #include <workerd/io/worker-interface.capnp.h>
 #include <workerd/jsg/memory.h>
 #include <workerd/util/own-util.h>
@@ -707,6 +708,12 @@ struct Span {
         startTime(startTime),
         endTime(startTime) {}
 };
+
+// Utility functions for handling span tags.
+void serializeTagValue(rpc::TagValue::Builder builder, const Span::TagValue& value);
+Span::TagValue deserializeTagValue(rpc::TagValue::Reader value);
+// Stringifier for span tags, getting this to work with KJ_STRINGIFY() appears exceedingly difficult.
+kj::String spanTagStr(const kj::OneOf<bool, int64_t, double, kj::String>& tag);
 
 // An opaque token which can be used to create child spans of some parent. This is typically
 // passed down from a caller to a callee when the caller wants to allow the callee to create
