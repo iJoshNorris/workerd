@@ -423,21 +423,17 @@ Trace::~Trace() noexcept(false) {}
 
 void Trace::copyTo(rpc::Trace::Builder builder) {
   {
-    auto list = builder.initLogs(logs.size() + spans.size());
+    auto list = builder.initLogs(logs.size());
     for (auto i: kj::indices(logs)) {
       logs[i].copyTo(list[i]);
-    }
-    // Add spans represented as logs to the logs object.
-    for (auto i: kj::indices(spans)) {
-      spans[i].copyTo(list[i + logs.size()]);
     }
   }
 
   {
     // Add spans to the builder.
-    auto list = builder.initSpans(spans2.size());
-    for (auto i: kj::indices(spans2)) {
-      spans2[i].copyTo(list[i]);
+    auto list = builder.initSpans(spans.size());
+    for (auto i: kj::indices(spans)) {
+      spans[i].copyTo(list[i]);
     }
   }
 
@@ -555,7 +551,7 @@ void Trace::mergeFrom(rpc::Trace::Reader reader, PipelineLogLevel pipelineLogLev
   // "full", so we may need to filter out the extra data after receiving the traces back.
   if (pipelineLogLevel != PipelineLogLevel::NONE) {
     logs.addAll(reader.getLogs());
-    spans2.addAll(reader.getSpans());
+    spans.addAll(reader.getSpans());
     exceptions.addAll(reader.getExceptions());
     diagnosticChannelEvents.addAll(reader.getDiagnosticChannelEvents());
   }
@@ -762,7 +758,7 @@ WorkerTracer::WorkerTracer(PipelineLogLevel pipelineLogLevel, ExecutionModel exe
           kj::none, kj::none, kj::none, kj::none, kj::none, nullptr, kj::none, executionModel)),
       self(kj::refcounted<WeakRef<WorkerTracer>>(kj::Badge<WorkerTracer>{}, *this)) {}
 
-void WorkerTracer::log(kj::Date timestamp, LogLevel logLevel, kj::String message, bool isSpan) {
+void WorkerTracer::log(kj::Date timestamp, LogLevel logLevel, kj::String message) {
   if (trace->exceededLogLimit) {
     return;
   }
@@ -780,38 +776,7 @@ void WorkerTracer::log(kj::Date timestamp, LogLevel logLevel, kj::String message
     return;
   }
   trace->bytesUsed = newSize;
-  if (isSpan) {
-    trace->spans.add(timestamp, logLevel, kj::mv(message));
-    trace->numSpans++;
-    return;
-  }
   trace->logs.add(timestamp, logLevel, kj::mv(message));
-}
-
-void WorkerTracer::addSpan(const Span& span, kj::String spanContext) {
-  // This is where we'll actually encode the span.
-  // Drop any spans beyond MAX_USER_SPANS.
-  if (trace->numSpans >= MAX_USER_SPANS) {
-    return;
-  }
-  if (isPredictableModeForTest()) {
-    // Do not emit span duration information in predictable mode.
-    log(span.endTime, LogLevel::LOG, kj::str("[\"span: ", span.operationName, "\"]"), true);
-  } else {
-    // Time since Unix epoch in seconds, with millisecond precision
-    double epochSecondsStart = (span.startTime - kj::UNIX_EPOCH) / kj::MILLISECONDS / 1000.0;
-    double epochSecondsEnd = (span.endTime - kj::UNIX_EPOCH) / kj::MILLISECONDS / 1000.0;
-    auto message = kj::str("[\"span: ", span.operationName, " ", kj::mv(spanContext), " ",
-        epochSecondsStart, " ", epochSecondsEnd, "\"]");
-    log(span.endTime, LogLevel::LOG, kj::mv(message), true);
-  }
-
-  // TODO(cleanup): Create a function in kj::OneOf to automatically convert to a given type (i.e
-  // String) to avoid having to handle each type explicitly here.
-  for (const Span::TagMap::Entry& tag: span.tags) {
-    kj::String message = kj::str("[\"tag: "_kj, tag.key, " => "_kj, spanTagStr(tag.value), "\"]");
-    log(span.endTime, LogLevel::LOG, kj::mv(message), true);
-  }
 }
 
 void WorkerTracer::addSpan(CompleteSpan&& span) {
@@ -821,8 +786,31 @@ void WorkerTracer::addSpan(CompleteSpan&& span) {
     return;
   }
   trace->numSpans++;
+
+  // TODO(cleanup): Create a function in kj::OneOf to automatically convert to a given type (i.e
+  // String) to avoid having to handle each type explicitly here.
+  //spanTagStr(tag.value);
+
   // TODO: Update bytesUsed in new path
-  trace->spans2.add(kj::mv(span));
+  /*if (trace->exceededLogLimit) {
+    return;
+  }
+  if (pipelineLogLevel == PipelineLogLevel::NONE) {
+    return;
+  }
+    size_t newSize = trace->bytesUsed + sizeof(Trace::Log) + message.size();
+  if (newSize > MAX_TRACE_BYTES) {
+    trace->exceededLogLimit = true;
+    trace->truncated = true;
+    // We use a JSON encoded array/string to match other console.log() recordings:
+    trace->logs.add(timestamp, LogLevel::WARN,
+        kj::str(
+            "[\"Log size limit exceeded: More than 128KB of data (across console.log statements, exception, request metadata and headers) was logged during a single request. Subsequent data for this request will not be recorded in logs, appear when tailing this Worker's logs, or in Tail Workers.\"]"));
+    return;
+  }
+  trace->bytesUsed = newSize;*/
+  trace->spans.add(kj::mv(span));
+  trace->numSpans++;
 }
 
 static void setValue(rpc::Value::Builder builder, const Span::TagValue& value) {
@@ -860,7 +848,7 @@ kj::String spanTagStr(const kj::OneOf<bool, int64_t, double, kj::String>& tag) {
   KJ_UNREACHABLE;
 }
 
-void CompleteSpan::copyTo(rpc::SpanData::Builder builder) {
+void CompleteSpan::copyTo(rpc::UserSpanData::Builder builder) {
   builder.setOperationName(operationName.asPtr());
   builder.setStartTimeNs((startTime - kj::UNIX_EPOCH) / kj::NANOSECONDS);
   builder.setEndTimeNs((endTime - kj::UNIX_EPOCH) / kj::NANOSECONDS);
@@ -890,7 +878,7 @@ Span::TagValue deserializeRpcValue(RpcValue::Reader value) {
   }
 }
 
-CompleteSpan::CompleteSpan(rpc::SpanData::Reader reader)
+CompleteSpan::CompleteSpan(rpc::UserSpanData::Reader reader)
     : spanId(reader.getSpanId()),
       parentSpanId(reader.getParentSpanId()),
       operationName(kj::str(reader.getOperationName())),

@@ -383,8 +383,7 @@ public:
   kj::Maybe<kj::String> entrypoint;
 
   kj::Vector<Log> logs;
-  kj::Vector<Log> spans;
-  kj::Vector<CompleteSpan> spans2;
+  kj::Vector<CompleteSpan> spans;
   // A request's trace can have multiple exceptions due to separate request/waitUntil tasks.
   kj::Vector<Exception> exceptions;
 
@@ -476,11 +475,8 @@ public:
   KJ_DISALLOW_COPY_AND_MOVE(WorkerTracer);
 
   // Adds log line to trace.  For Spectre, timestamp should only be as accurate as JS Date.now().
-  // The isSpan parameter allows for logging spans, which will be emitted after regular logs. There
-  // can be at most MAX_USER_SPANS spans in a trace.
-  void log(kj::Date timestamp, LogLevel logLevel, kj::String message, bool isSpan = false);
-  // Add a span, which will be represented as a log.
-  void addSpan(const Span& span, kj::String spanContext);
+  void log(kj::Date timestamp, LogLevel logLevel, kj::String message);
+  // Add a span. There can be at most MAX_USER_SPANS spans in a trace.
   void addSpan(CompleteSpan&& span);
 
   // TODO(soon): Eventually:
@@ -596,27 +592,18 @@ public:
 };
 
 struct CompleteSpan {
-  // Represents a trace span. `Span` objects are delivered to `SpanObserver`s for recording. To
-  // create a `Span`, use a `SpanBuilder`.
-
-public:
-  using TagValue = kj::OneOf<bool, int64_t, double, kj::String>;
-  // TODO(someday): Support binary bytes, too.
-  using TagMap = kj::HashMap<kj::ConstString, TagValue>;
-  using Tag = TagMap::Entry;
-
-  void copyTo(rpc::SpanData::Builder builder);
-  CompleteSpan(rpc::SpanData::Reader reader);
-
-  //__uint128_t traceId;
+  // Represents a completed span within user tracing.
   uint64_t spanId;
   uint64_t parentSpanId;
+  // TODO(o11y): Add __uint128_t traceId?
 
   kj::ConstString operationName;
   kj::Date startTime;
   kj::Date endTime;
-  TagMap tags;
+  Span::TagMap tags;
 
+  CompleteSpan(rpc::UserSpanData::Reader reader);
+  void copyTo(rpc::UserSpanData::Builder builder);
   explicit CompleteSpan(kj::ConstString operationName, kj::Date startTime)
       : operationName(kj::mv(operationName)),
         startTime(startTime),

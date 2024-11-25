@@ -14,7 +14,10 @@
 #include <workerd/util/uncaught-exception-source.h>
 #include <workerd/util/uuid.h>
 
+#include <arpa/inet.h>
+
 #include <capnp/schema.h>
+#include <kj/encoding.h>
 
 namespace workerd::api {
 
@@ -74,19 +77,11 @@ jsg::V8Ref<v8::Object> getTraceLogMessage(jsg::Lock& js, const Trace::Log& log) 
 }
 
 kj::Array<jsg::Ref<TraceLog>> getTraceLogs(jsg::Lock& js, const Trace& trace) {
-  auto builder = kj::heapArrayBuilder<jsg::Ref<TraceLog>>(trace.logs.size() + trace.spans.size());
-  for (auto i: kj::indices(trace.logs)) {
-    builder.add(jsg::alloc<TraceLog>(js, trace, trace.logs[i]));
-  }
-  // Add spans represented as logs to the logs object.
-  for (auto i: kj::indices(trace.spans)) {
-    builder.add(jsg::alloc<TraceLog>(js, trace, trace.spans[i]));
-  }
-  return builder.finish();
+  return KJ_MAP(x, trace.logs) -> jsg::Ref<TraceLog> { return jsg::alloc<TraceLog>(js, trace, x); };
 }
 
 kj::Array<jsg::Ref<OTelSpan>> getTraceSpanData(const Trace& trace) {
-  return KJ_MAP(x, trace.spans2) -> jsg::Ref<OTelSpan> { return jsg::alloc<OTelSpan>(x); };
+  return KJ_MAP(x, trace.spans) -> jsg::Ref<OTelSpan> { return jsg::alloc<OTelSpan>(x); };
 }
 
 kj::Array<jsg::Ref<TraceDiagnosticChannelEvent>> getTraceDiagnosticChannelEvents(
@@ -565,14 +560,12 @@ kj::Date OTelSpan::getStartTime() {
   return startTime;
 }
 
-uint64_t OTelSpan::getSpanID() {
+kj::StringPtr OTelSpan::getSpanID() {
   return spanId;
 }
-uint64_t OTelSpan::getParentSpanID() {
+kj::StringPtr OTelSpan::getParentSpanID() {
   return parentSpanId;
 }
-//kj::ArrayPtr<byte> OTelSpan::getSpanID() { return spanId; }
-//kj::ArrayPtr<byte> OTelSpan::getParentSpanID() { return parentSpanId; }
 
 kj::Date OTelSpan::getEndTime() {
   return endTime;
@@ -583,21 +576,21 @@ kj::ArrayPtr<OTelSpanTag> OTelSpan::getTags() {
 }
 
 OTelSpan::OTelSpan(const CompleteSpan& span)
-    : spanId(span.spanId),
-      parentSpanId(span.parentSpanId),
-      operation(kj::str(span.operationName)),
+    : operation(kj::str(span.operationName)),
       startTime(span.startTime),
       endTime(span.endTime),
       tags(kj::heapArray<OTelSpanTag>(span.tags.size())) {
-  int i = 0;
+  // IDs are represented as network-order hex strings.
+  uint64_t netSpanId = __bswap_64(span.spanId);
+  uint64_t netParentSpanId = __bswap_64(span.parentSpanId);
+  spanId = kj::encodeHex(kj::ArrayPtr<byte>((kj::byte*)&netSpanId, sizeof(uint64_t)));
+  parentSpanId = kj::encodeHex(kj::ArrayPtr<byte>((kj::byte*)&netParentSpanId, sizeof(uint64_t)));
+  uint32_t i = 0;
   for (auto& tag: span.tags) {
     tags[i].key = kj::str(tag.key);
     tags[i].value = spanTagStr(tag.value);
     i++;
   }
-  //spanId = kj::heapArray<byte>(8);
-  //memcpy(spanId.begin(), &span.spanId, 8);
-  //tags = KJ_MAP(tag, span.tags) -> OTelSpanTag { OTelSpanTag t; t.key = kj::str(tag.key); t.value = spanTagStr(tag.value); return kj::mv(t); };
 }
 
 TraceLog::TraceLog(jsg::Lock& js, const Trace& trace, const Trace::Log& log)

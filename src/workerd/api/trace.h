@@ -67,19 +67,17 @@ struct ScriptVersion {
 };
 
 struct OTelSpanTag final: public jsg::Object {
-  kj::String key;  // => maps to JS String
-  // TODO: Does JSG accept this? int vs double differentiation not captured? Is bool rendered correctly?
-  kj::OneOf<bool, int64_t, double, kj::String> value;  // => maps to JS boolean, number or string
+  kj::String key;
+  // TODO(o11y): int64_t captured as non-stringifiable BigInt? Is bool rendered correctly?
+  kj::OneOf<bool, int64_t, double, kj::String> value;
   JSG_STRUCT(key, value);
 };
 
 class OTelSpan final: public jsg::Object {
 public:
   OTelSpan(const CompleteSpan& span);
-  uint64_t getSpanID();
-  uint64_t getParentSpanID();
-  //kj::ArrayPtr<byte> getSpanID();
-  //kj::ArrayPtr<byte> getParentSpanID();
+  kj::StringPtr getSpanID();
+  kj::StringPtr getParentSpanID();
   kj::StringPtr getOperation();
   kj::ArrayPtr<OTelSpanTag> getTags();
   kj::Date getStartTime();
@@ -96,33 +94,20 @@ public:
 
   void visitForMemoryInfo(jsg::MemoryTracker& tracker) const {
     tracker.trackField("operation", operation);
-    // TODO: Track tags?
+    // TODO(o11y): Track tags. Ids will be hex strings with fixed size.
   }
 
 private:
-  //kj::Array<byte> traceId; // => JS ArrayBuffer
-  //kj::Array<byte> spanId;
-  //kj::Array<byte> parentSpanId;
-  uint64_t spanId;
-  uint64_t parentSpanId;
-  kj::String operation;  // => JS String
-  kj::Date startTime;    // => JS Date – ms precision
+  // TODO(o11y): Provide traceId
+  kj::String spanId;
+  kj::String parentSpanId;
+  kj::String operation;
+  // TODO(o11y): startTimeUnixNano for OTel compat
+  kj::Date startTime;  // => JS Date – ms precision
   kj::Date
       endTime;  // unlike the OTel spec we use end time instead of duration here (this makes C++ interop eaier).
-  kj::Array<OTelSpanTag> tags;  // => JS array of tags
+  kj::Array<OTelSpanTag> tags;
 };
-
-/*class OTelTrace final: public jsg::Object {
- public:
-  //kj::Maybe<kj::StringPtr> getScriptName();
-
-  JSG_RESOURCE_TYPE(OTelTrace) {
-    //JSG_LAZY_READONLY_INSTANCE_PROPERTY(scriptName, getScriptName);
-  }
-  //jsg::BufferSource
-
-    kj::Array<jsg::Ref<OTelSpan>> spans; // => JS array of spans
-};*/
 
 class TraceItem final: public jsg::Object {
 public:
@@ -171,6 +156,9 @@ public:
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(event, getEvent);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(eventTimestamp, getEventTimestamp);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(logs, getLogs);
+    if (flags.getTailWorkerUserSpans()) {
+      JSG_LAZY_READONLY_INSTANCE_PROPERTY(spanData, getSpanData);
+    }
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(exceptions, getExceptions);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(diagnosticsChannelEvents, getDiagnosticChannelEvents);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(scriptName, getScriptName);
@@ -181,9 +169,6 @@ public:
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(outcome, getOutcome);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(executionModel, getExecutionModel);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(truncated, getTruncated);
-    if (flags.getTailWorkerObsData()) {
-      JSG_LAZY_READONLY_INSTANCE_PROPERTY(spanData, getSpanData);
-    }
   }
 
   void visitForMemoryInfo(jsg::MemoryTracker& tracker) const;

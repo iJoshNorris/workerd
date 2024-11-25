@@ -29,7 +29,8 @@ struct Tag {
   value @1 :Value;
 }
 
-struct SpanData {
+struct UserSpanData {
+  # Representation of a completed user span
   operationName @0 :Text;
 
   startTimeNs @1 :Int64;
@@ -59,7 +60,7 @@ struct Trace @0x8e8d911203762d34 {
     message @2 :Text;
   }
 
-  spans @26 :List(SpanData);
+  spans @26 :List(UserSpanData);
 
   exceptions @1 :List(Exception);
   struct Exception {
