@@ -66,6 +66,59 @@ struct ScriptVersion {
   }
 };
 
+struct OTelSpanTag final: public jsg::Object {
+  kj::String key;  // => maps to JS String
+  // TODO: Does JSG accept this? int vs double differentiation not captured? Is bool rendered correctly?
+  kj::OneOf<bool, int64_t, double, kj::String> value;  // => maps to JS boolean, number or string
+  JSG_STRUCT(key, value);
+};
+
+class OTelSpan final: public jsg::Object {
+public:
+  OTelSpan(const Span& span);
+  //kj::Array<byte> getSpanID();
+  kj::StringPtr getOperation();
+  kj::ArrayPtr<OTelSpanTag> getTags();
+  kj::Date getStartTime();
+  kj::Date getEndTime();
+
+  JSG_RESOURCE_TYPE(OTelSpan) {
+    //JSG_LAZY_READONLY_INSTANCE_PROPERTY(spanId, getSpanID);
+    JSG_LAZY_READONLY_INSTANCE_PROPERTY(operation, getOperation);
+    JSG_LAZY_READONLY_INSTANCE_PROPERTY(tags, getTags);
+    JSG_LAZY_READONLY_INSTANCE_PROPERTY(startTime, getStartTime);
+    JSG_LAZY_READONLY_INSTANCE_PROPERTY(endTime, getEndTime);
+  }
+
+  void visitForMemoryInfo(jsg::MemoryTracker& tracker) const {
+    //tracker.trackField("spanId", spanId);
+    tracker.trackField("operation", operation);
+    // TODO: Track tags?
+  }
+
+private:
+  //kj::Array<byte> traceId; // => JS ArrayBuffer
+  //kj::Array<byte> spanId;
+  kj::String operation;  // => JS String
+  //kj::Array<byte> parentSpanId;
+  kj::Date startTime;  // => JS Date – ms precision
+  kj::Date
+      endTime;  // unlike the OTel spec we use end time instead of duration here (this makes C++ interop eaier).
+  kj::Array<OTelSpanTag> tags;  // => JS array of tags
+};
+
+/*class OTelTrace final: public jsg::Object {
+ public:
+  //kj::Maybe<kj::StringPtr> getScriptName();
+
+  JSG_RESOURCE_TYPE(OTelTrace) {
+    //JSG_LAZY_READONLY_INSTANCE_PROPERTY(scriptName, getScriptName);
+  }
+  //jsg::BufferSource
+
+    kj::Array<jsg::Ref<OTelSpan>> spans; // => JS array of spans
+};*/
+
 class TraceItem final: public jsg::Object {
 public:
   class FetchEventInfo;
@@ -102,13 +155,14 @@ public:
   jsg::Optional<kj::StringPtr> getDispatchNamespace();
   jsg::Optional<kj::Array<kj::StringPtr>> getScriptTags();
   kj::StringPtr getExecutionModel();
+  kj::ArrayPtr<jsg::Ref<OTelSpan>> getSpanData();
   kj::StringPtr getOutcome();
 
   uint getCpuTime();
   uint getWallTime();
   bool getTruncated();
 
-  JSG_RESOURCE_TYPE(TraceItem) {
+  JSG_RESOURCE_TYPE(TraceItem, CompatibilityFlags::Reader flags) {
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(event, getEvent);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(eventTimestamp, getEventTimestamp);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(logs, getLogs);
@@ -122,6 +176,9 @@ public:
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(outcome, getOutcome);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(executionModel, getExecutionModel);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(truncated, getTruncated);
+    if (flags.getTailWorkerObsData()) {
+      JSG_LAZY_READONLY_INSTANCE_PROPERTY(spanData, getSpanData);
+    }
   }
 
   void visitForMemoryInfo(jsg::MemoryTracker& tracker) const;
@@ -138,6 +195,7 @@ private:
   kj::Maybe<kj::String> dispatchNamespace;
   jsg::Optional<kj::Array<kj::String>> scriptTags;
   kj::String executionModel;
+  kj::Array<jsg::Ref<OTelSpan>> spanData;
   kj::String outcome;
   uint cpuTime;
   uint wallTime;
@@ -644,8 +702,9 @@ private:
       api::TraceItem::HibernatableWebSocketEventInfo,                                              \
       api::TraceItem::HibernatableWebSocketEventInfo::Message,                                     \
       api::TraceItem::HibernatableWebSocketEventInfo::Close,                                       \
-      api::TraceItem::HibernatableWebSocketEventInfo::Error, api::TraceLog, api::TraceException,   \
-      api::TraceDiagnosticChannelEvent, api::TraceMetrics, api::UnsafeTraceMetrics
+      api::TraceItem::HibernatableWebSocketEventInfo::Error, api::TraceLog, api::OTelSpan,         \
+      api::OTelSpanTag, api::TraceException, api::TraceDiagnosticChannelEvent, api::TraceMetrics,  \
+      api::UnsafeTraceMetrics
 // The list of trace.h types that are added to worker.c++'s JSG_DECLARE_ISOLATE_TYPE
 
 }  // namespace workerd::api

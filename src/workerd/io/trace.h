@@ -382,8 +382,8 @@ public:
   kj::Maybe<kj::String> entrypoint;
 
   kj::Vector<Log> logs;
-  // TODO(o11y): Convert this to actually store spans.
   kj::Vector<Log> spans;
+  kj::Vector<Span> spans2;
   // A request's trace can have multiple exceptions due to separate request/waitUntil tasks.
   kj::Vector<Exception> exceptions;
 
@@ -480,6 +480,7 @@ public:
   void log(kj::Date timestamp, LogLevel logLevel, kj::String message, bool isSpan = false);
   // Add a span, which will be represented as a log.
   void addSpan(const Span& span, kj::String spanContext);
+  void addSpan(Span&& span, kj::String spanContext);
 
   // TODO(soon): Eventually:
   //void setMetrics(...) // Or get from MetricsCollector::Request directly?
@@ -554,6 +555,9 @@ inline kj::String truncateScriptId(kj::StringPtr id) {
 class SpanBuilder;
 class SpanObserver;
 
+// Getting const OneOf<> to work with KJ_STRINGIFY appears exceedingly difficult, define a regular function.
+kj::String spanTagStr(const kj::OneOf<bool, int64_t, double, kj::String>& tag);
+
 struct Span {
   // Represents a trace span. `Span` objects are delivered to `SpanObserver`s for recording. To
   // create a `Span`, use a `SpanBuilder`.
@@ -564,6 +568,8 @@ public:
   using TagMap = kj::HashMap<kj::ConstString, TagValue>;
   using Tag = TagMap::Entry;
 
+  void copyTo(rpc::SpanData::Builder builder);
+  Span(rpc::SpanData::Reader reader);
   struct Log {
     kj::Date timestamp;
     Tag tag;

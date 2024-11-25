@@ -434,6 +434,14 @@ void Trace::copyTo(rpc::Trace::Builder builder) {
   }
 
   {
+    // Add spans to the builder.
+    auto list = builder.initSpans(spans2.size());
+    for (auto i: kj::indices(spans2)) {
+      spans2[i].copyTo(list[i]);
+    }
+  }
+
+  {
     auto list = builder.initExceptions(exceptions.size());
     for (auto i: kj::indices(exceptions)) {
       exceptions[i].copyTo(list[i]);
@@ -547,6 +555,7 @@ void Trace::mergeFrom(rpc::Trace::Reader reader, PipelineLogLevel pipelineLogLev
   // "full", so we may need to filter out the extra data after receiving the traces back.
   if (pipelineLogLevel != PipelineLogLevel::NONE) {
     logs.addAll(reader.getLogs());
+    spans2.addAll(reader.getSpans());
     exceptions.addAll(reader.getExceptions());
     diagnosticChannelEvents.addAll(reader.getDiagnosticChannelEvents());
   }
@@ -780,7 +789,7 @@ void WorkerTracer::log(kj::Date timestamp, LogLevel logLevel, kj::String message
 }
 
 void WorkerTracer::addSpan(const Span& span, kj::String spanContext) {
-  // This is where we'll actually encode the span for now.
+  // This is where we'll actually encode the span.
   // Drop any spans beyond MAX_USER_SPANS.
   if (trace->numSpans >= MAX_USER_SPANS) {
     return;
@@ -800,25 +809,112 @@ void WorkerTracer::addSpan(const Span& span, kj::String spanContext) {
   // TODO(cleanup): Create a function in kj::OneOf to automatically convert to a given type (i.e
   // String) to avoid having to handle each type explicitly here.
   for (const Span::TagMap::Entry& tag: span.tags) {
-    auto value = [&]() {
-      KJ_SWITCH_ONEOF(tag.value) {
-        KJ_CASE_ONEOF(str, kj::String) {
-          return kj::str(str);
-        }
-        KJ_CASE_ONEOF(val, int64_t) {
-          return kj::str(val);
-        }
-        KJ_CASE_ONEOF(val, double) {
-          return kj::str(val);
-        }
-        KJ_CASE_ONEOF(val, bool) {
-          return kj::str(val);
-        }
-      }
-      KJ_UNREACHABLE;
-    }();
-    kj::String message = kj::str("[\"tag: "_kj, tag.key, " => "_kj, value, "\"]");
+    kj::String message = kj::str("[\"tag: "_kj, tag.key, " => "_kj, spanTagStr(tag.value), "\"]");
     log(span.endTime, LogLevel::LOG, kj::mv(message), true);
+  }
+}
+
+void WorkerTracer::addSpan(Span&& span, kj::String spanContext) {
+  // This is where we'll actually encode the span.
+  // Drop any spans beyond MAX_USER_SPANS.
+  if (trace->numSpans >= MAX_USER_SPANS) {
+    return;
+  }
+  // TODO: Update bytesUsed in new path
+  trace->spans2.add(kj::mv(span));
+  //Span span2();
+}
+
+static void setValue(rpc::Value::Builder builder, const Span::TagValue& value) {
+  KJ_SWITCH_ONEOF(value) {
+    KJ_CASE_ONEOF(b, bool) {
+      builder.setBool(b);
+    }
+    KJ_CASE_ONEOF(i, long) {
+      builder.setInt64(i);
+    }
+    KJ_CASE_ONEOF(d, double) {
+      builder.setFloat64(d);
+    }
+    KJ_CASE_ONEOF(s, kj::String) {
+      builder.setString(s);
+    }
+  }
+}
+
+kj::String spanTagStr(const kj::OneOf<bool, int64_t, double, kj::String>& tag) {
+  KJ_SWITCH_ONEOF(tag) {
+    KJ_CASE_ONEOF(str, kj::String) {
+      return kj::str(str);
+    }
+    KJ_CASE_ONEOF(val, int64_t) {
+      return kj::str(val);
+    }
+    KJ_CASE_ONEOF(val, double) {
+      return kj::str(val);
+    }
+    KJ_CASE_ONEOF(val, bool) {
+      return kj::str(val);
+    }
+  }
+  KJ_UNREACHABLE;
+}
+
+void Span::copyTo(rpc::SpanData::Builder builder) {
+  builder.setOperationName(operationName.asPtr());
+  builder.setStartTimeNs((startTime - kj::UNIX_EPOCH) / kj::NANOSECONDS);
+  builder.setEndTimeNs((endTime - kj::UNIX_EPOCH) / kj::NANOSECONDS);
+
+  auto tagsParam = builder.initTags(tags.size());
+  auto i = 0;
+  for (auto& tag: tags) {
+    auto tagParam = tagsParam[i++];
+    tagParam.setKey(tag.key.asPtr());
+    setValue(tagParam.initValue(), tag.value);
+  }
+
+  auto logsParam = builder.initLogs(logs.size());
+  i = 0;
+  for (auto& log: logs) {
+    auto logParam = logsParam[i++];
+    logParam.setTimestampNs((log.timestamp - kj::UNIX_EPOCH) / kj::NANOSECONDS);
+    logParam.setKey(log.tag.key.asPtr());
+    setValue(logParam.initValue(), log.tag.value);
+  }
+}
+
+using RpcValue = rpc::Value;
+Span::TagValue deserializeRpcValue(RpcValue::Reader value) {
+  switch (value.which()) {
+    case RpcValue::BOOL:
+      return value.getBool();
+    case RpcValue::FLOAT64:
+      return value.getFloat64();
+    case RpcValue::INT64:
+      return value.getInt64();
+    case RpcValue::STRING:
+      return kj::heapString(value.getString());
+  }
+}
+
+Span::Span(rpc::SpanData::Reader reader)
+    : operationName(kj::str(reader.getOperationName())),
+      startTime(kj::UNIX_EPOCH + reader.getStartTimeNs() * kj::NANOSECONDS),
+      endTime(kj::UNIX_EPOCH + reader.getEndTimeNs() * kj::NANOSECONDS) {
+  auto tagsParam = reader.getTags();
+  tags.reserve(tagsParam.size());
+  for (auto tagParam: tagsParam) {
+    tags.insert(kj::ConstString(kj::heapString(tagParam.getKey())),
+        deserializeRpcValue(tagParam.getValue()));
+  }
+  auto logsParam = reader.getLogs();
+  logs.reserve(logsParam.size());
+  for (auto logParam: logsParam) {
+    logs.add(Span::Log{.timestamp = (logParam.getTimestampNs() * kj::NANOSECONDS) + kj::UNIX_EPOCH,
+      .tag = Span::Tag{
+        .key = kj::ConstString(kj::heapString(logParam.getKey())),
+        .value = deserializeRpcValue(logParam.getValue()),
+      }});
   }
 }
 

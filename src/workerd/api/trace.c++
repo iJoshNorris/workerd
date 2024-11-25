@@ -85,6 +85,10 @@ kj::Array<jsg::Ref<TraceLog>> getTraceLogs(jsg::Lock& js, const Trace& trace) {
   return builder.finish();
 }
 
+kj::Array<jsg::Ref<OTelSpan>> getTraceSpanData(const Trace& trace) {
+  return KJ_MAP(x, trace.spans2) -> jsg::Ref<OTelSpan> { return jsg::alloc<OTelSpan>(x); };
+}
+
 kj::Array<jsg::Ref<TraceDiagnosticChannelEvent>> getTraceDiagnosticChannelEvents(
     jsg::Lock& js, const Trace& trace) {
   return KJ_MAP(x, trace.diagnosticChannelEvents) -> jsg::Ref<TraceDiagnosticChannelEvent> {
@@ -205,6 +209,7 @@ TraceItem::TraceItem(jsg::Lock& js, const Trace& trace)
       dispatchNamespace(trace.dispatchNamespace.map([](auto& ns) { return kj::str(ns); })),
       scriptTags(getTraceScriptTags(trace)),
       executionModel(enumToStr(trace.executionModel)),
+      spanData(getTraceSpanData(trace)),
       outcome(enumToStr(trace.outcome)),
       cpuTime(trace.cpuTime / kj::MILLISECONDS),
       wallTime(trace.wallTime / kj::MILLISECONDS),
@@ -284,6 +289,10 @@ jsg::Optional<kj::Array<kj::StringPtr>> TraceItem::getScriptTags() {
 
 kj::StringPtr TraceItem::getExecutionModel() {
   return executionModel;
+}
+
+kj::ArrayPtr<jsg::Ref<OTelSpan>> TraceItem::getSpanData() {
+  return spanData;
 }
 
 kj::StringPtr TraceItem::getOutcome() {
@@ -546,6 +555,36 @@ uint16_t TraceItem::HibernatableWebSocketEventInfo::Close::getCode() {
 
 bool TraceItem::HibernatableWebSocketEventInfo::Close::getWasClean() {
   return eventInfo.wasClean;
+}
+
+kj::StringPtr OTelSpan::getOperation() {
+  return operation;
+}
+
+kj::Date OTelSpan::getStartTime() {
+  return startTime;
+}
+
+kj::Date OTelSpan::getEndTime() {
+  return endTime;
+}
+
+kj::ArrayPtr<OTelSpanTag> OTelSpan::getTags() {
+  return tags;
+}
+
+OTelSpan::OTelSpan(const Span& span)
+    : operation(kj::str(span.operationName)),
+      startTime(span.startTime),
+      endTime(span.endTime),
+      tags(kj::heapArray<OTelSpanTag>(span.tags.size())) {
+  int i = 0;
+  for (auto& tag: span.tags) {
+    tags[i].key = kj::str(tag.key);
+    tags[i].value = spanTagStr(tag.value);
+    i++;
+  }
+  //tags = KJ_MAP(tag, span.tags) -> OTelSpanTag { OTelSpanTag t; t.key = kj::str(tag.key); t.value = spanTagStr(tag.value); return kj::mv(t); };
 }
 
 TraceLog::TraceLog(jsg::Lock& js, const Trace& trace, const Trace::Log& log)

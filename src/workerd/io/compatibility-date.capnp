@@ -660,4 +660,9 @@ struct CompatibilityFlags @0x8f8c1b68151b6cef {
   # When enabled, use of top-level await syntax in require() calls will be disallowed.
   # The ecosystem and runtimes are moving to a state where top level await in modules
   # is being strongly discouraged.
+
+  # Experimental support for exporting span data to tail worker.
+  tailWorkerObsData @68 :Bool
+      $compatEnableFlag("workers_tail_worker_obs_data")
+      $experimental;
 }

@@ -15,6 +15,38 @@ using import "/capnp/compat/byte-stream.capnp".ByteStream;
 using import "/workerd/io/outcome.capnp".EventOutcome;
 using import "/workerd/io/script-version.capnp".ScriptVersion;
 
+struct Value {
+  union {
+    string @0 :Text;
+    bool @1 :Bool;
+    int64 @2 :Int64;
+    float64 @3 :Float64;
+  }
+}
+
+struct Tag {
+  key @0 :Text;
+  value @1 :Value;
+}
+
+struct SpanData {
+  operationName @0 :Text;
+
+  startTimeNs @1 :Int64;
+  endTimeNs @2 :Int64;
+  # Nanoseconds since Unix epoch
+
+  struct Log {
+    timestampNs @0 :Int64;
+    # Nanoseconds since Unix epoch
+    key @1 :Text;
+    value @2 :Value;
+  }
+
+  tags @3 :List(Tag);
+  logs @4 :List(Log);
+}
+
 struct Trace @0x8e8d911203762d34 {
   logs @0 :List(Log);
   struct Log {
@@ -31,6 +63,8 @@ struct Trace @0x8e8d911203762d34 {
 
     message @2 :Text;
   }
+
+  spans @26 :List(SpanData);
 
   exceptions @1 :List(Exception);
   struct Exception {
