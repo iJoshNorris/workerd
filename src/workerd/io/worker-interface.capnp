@@ -36,15 +36,10 @@ struct SpanData {
   endTimeNs @2 :Int64;
   # Nanoseconds since Unix epoch
 
-  struct Log {
-    timestampNs @0 :Int64;
-    # Nanoseconds since Unix epoch
-    key @1 :Text;
-    value @2 :Value;
-  }
-
   tags @3 :List(Tag);
-  logs @4 :List(Log);
+
+  spanId @4 :UInt64;
+  parentSpanId @5 :UInt64;
 }
 
 struct Trace @0x8e8d911203762d34 {

@@ -814,15 +814,15 @@ void WorkerTracer::addSpan(const Span& span, kj::String spanContext) {
   }
 }
 
-void WorkerTracer::addSpan(Span&& span, kj::String spanContext) {
+void WorkerTracer::addSpan(CompleteSpan&& span) {
   // This is where we'll actually encode the span.
   // Drop any spans beyond MAX_USER_SPANS.
   if (trace->numSpans >= MAX_USER_SPANS) {
     return;
   }
+  trace->numSpans++;
   // TODO: Update bytesUsed in new path
   trace->spans2.add(kj::mv(span));
-  //Span span2();
 }
 
 static void setValue(rpc::Value::Builder builder, const Span::TagValue& value) {
@@ -860,10 +860,12 @@ kj::String spanTagStr(const kj::OneOf<bool, int64_t, double, kj::String>& tag) {
   KJ_UNREACHABLE;
 }
 
-void Span::copyTo(rpc::SpanData::Builder builder) {
+void CompleteSpan::copyTo(rpc::SpanData::Builder builder) {
   builder.setOperationName(operationName.asPtr());
   builder.setStartTimeNs((startTime - kj::UNIX_EPOCH) / kj::NANOSECONDS);
   builder.setEndTimeNs((endTime - kj::UNIX_EPOCH) / kj::NANOSECONDS);
+  builder.setSpanId(spanId);
+  builder.setParentSpanId(parentSpanId);
 
   auto tagsParam = builder.initTags(tags.size());
   auto i = 0;
@@ -871,15 +873,6 @@ void Span::copyTo(rpc::SpanData::Builder builder) {
     auto tagParam = tagsParam[i++];
     tagParam.setKey(tag.key.asPtr());
     setValue(tagParam.initValue(), tag.value);
-  }
-
-  auto logsParam = builder.initLogs(logs.size());
-  i = 0;
-  for (auto& log: logs) {
-    auto logParam = logsParam[i++];
-    logParam.setTimestampNs((log.timestamp - kj::UNIX_EPOCH) / kj::NANOSECONDS);
-    logParam.setKey(log.tag.key.asPtr());
-    setValue(logParam.initValue(), log.tag.value);
   }
 }
 
@@ -897,8 +890,10 @@ Span::TagValue deserializeRpcValue(RpcValue::Reader value) {
   }
 }
 
-Span::Span(rpc::SpanData::Reader reader)
-    : operationName(kj::str(reader.getOperationName())),
+CompleteSpan::CompleteSpan(rpc::SpanData::Reader reader)
+    : spanId(reader.getSpanId()),
+      parentSpanId(reader.getParentSpanId()),
+      operationName(kj::str(reader.getOperationName())),
       startTime(kj::UNIX_EPOCH + reader.getStartTimeNs() * kj::NANOSECONDS),
       endTime(kj::UNIX_EPOCH + reader.getEndTimeNs() * kj::NANOSECONDS) {
   auto tagsParam = reader.getTags();
@@ -906,15 +901,6 @@ Span::Span(rpc::SpanData::Reader reader)
   for (auto tagParam: tagsParam) {
     tags.insert(kj::ConstString(kj::heapString(tagParam.getKey())),
         deserializeRpcValue(tagParam.getValue()));
-  }
-  auto logsParam = reader.getLogs();
-  logs.reserve(logsParam.size());
-  for (auto logParam: logsParam) {
-    logs.add(Span::Log{.timestamp = (logParam.getTimestampNs() * kj::NANOSECONDS) + kj::UNIX_EPOCH,
-      .tag = Span::Tag{
-        .key = kj::ConstString(kj::heapString(logParam.getKey())),
-        .value = deserializeRpcValue(logParam.getValue()),
-      }});
   }
 }
 

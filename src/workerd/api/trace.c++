@@ -565,6 +565,15 @@ kj::Date OTelSpan::getStartTime() {
   return startTime;
 }
 
+uint64_t OTelSpan::getSpanID() {
+  return spanId;
+}
+uint64_t OTelSpan::getParentSpanID() {
+  return parentSpanId;
+}
+//kj::ArrayPtr<byte> OTelSpan::getSpanID() { return spanId; }
+//kj::ArrayPtr<byte> OTelSpan::getParentSpanID() { return parentSpanId; }
+
 kj::Date OTelSpan::getEndTime() {
   return endTime;
 }
@@ -573,8 +582,10 @@ kj::ArrayPtr<OTelSpanTag> OTelSpan::getTags() {
   return tags;
 }
 
-OTelSpan::OTelSpan(const Span& span)
-    : operation(kj::str(span.operationName)),
+OTelSpan::OTelSpan(const CompleteSpan& span)
+    : spanId(span.spanId),
+      parentSpanId(span.parentSpanId),
+      operation(kj::str(span.operationName)),
       startTime(span.startTime),
       endTime(span.endTime),
       tags(kj::heapArray<OTelSpanTag>(span.tags.size())) {
@@ -584,6 +595,8 @@ OTelSpan::OTelSpan(const Span& span)
     tags[i].value = spanTagStr(tag.value);
     i++;
   }
+  //spanId = kj::heapArray<byte>(8);
+  //memcpy(spanId.begin(), &span.spanId, 8);
   //tags = KJ_MAP(tag, span.tags) -> OTelSpanTag { OTelSpanTag t; t.key = kj::str(tag.key); t.value = spanTagStr(tag.value); return kj::mv(t); };
 }
 

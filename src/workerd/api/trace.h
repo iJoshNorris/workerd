@@ -75,15 +75,19 @@ struct OTelSpanTag final: public jsg::Object {
 
 class OTelSpan final: public jsg::Object {
 public:
-  OTelSpan(const Span& span);
-  //kj::Array<byte> getSpanID();
+  OTelSpan(const CompleteSpan& span);
+  uint64_t getSpanID();
+  uint64_t getParentSpanID();
+  //kj::ArrayPtr<byte> getSpanID();
+  //kj::ArrayPtr<byte> getParentSpanID();
   kj::StringPtr getOperation();
   kj::ArrayPtr<OTelSpanTag> getTags();
   kj::Date getStartTime();
   kj::Date getEndTime();
 
   JSG_RESOURCE_TYPE(OTelSpan) {
-    //JSG_LAZY_READONLY_INSTANCE_PROPERTY(spanId, getSpanID);
+    JSG_LAZY_READONLY_INSTANCE_PROPERTY(spanId, getSpanID);
+    JSG_LAZY_READONLY_INSTANCE_PROPERTY(parentSpanId, getParentSpanID);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(operation, getOperation);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(tags, getTags);
     JSG_LAZY_READONLY_INSTANCE_PROPERTY(startTime, getStartTime);
@@ -91,7 +95,6 @@ public:
   }
 
   void visitForMemoryInfo(jsg::MemoryTracker& tracker) const {
-    //tracker.trackField("spanId", spanId);
     tracker.trackField("operation", operation);
     // TODO: Track tags?
   }
@@ -99,9 +102,11 @@ public:
 private:
   //kj::Array<byte> traceId; // => JS ArrayBuffer
   //kj::Array<byte> spanId;
-  kj::String operation;  // => JS String
   //kj::Array<byte> parentSpanId;
-  kj::Date startTime;  // => JS Date – ms precision
+  uint64_t spanId;
+  uint64_t parentSpanId;
+  kj::String operation;  // => JS String
+  kj::Date startTime;    // => JS Date – ms precision
   kj::Date
       endTime;  // unlike the OTel spec we use end time instead of duration here (this makes C++ interop eaier).
   kj::Array<OTelSpanTag> tags;  // => JS array of tags
