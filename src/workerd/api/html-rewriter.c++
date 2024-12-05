@@ -4,7 +4,7 @@
 
 #include "html-rewriter.h"
 
-#include "c-api/include/lol_html.h"
+#include "lol_html.h"
 #include "streams.h"
 #include "util.h"
 
