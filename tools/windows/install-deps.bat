@@ -52,11 +52,15 @@ rem `More -> Export Configuration Settings`, select an config file to write, the
 rem and select "Desktop development with C++".
 echo.
 echo.* Step 3: Install Visual Studio Code Community edition with Desktop development with C++ package.
-winget install "Microsoft.VisualStudio.2022.Community" --override "install --config %~dp0\vsconfig.json"
+@REM winget install "Microsoft.VisualStudio.2022.Community" --override "install --config %~dp0\vsconfig.json"
+
+rem https://learn.microsoft.com/en-us/visualstudio/install/workload-component-id-vs-build-tools?view=vs-2022&preserve-view=true#desktop-development-with-c
+winget install -e --id Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools;includeRecommended;includeOptional"
+
 
 echo.
 echo.* Step 4: Install Python 3.
-winget install Python3 -v 3.12.1 --override "/passive PrependPath=1"
+winget install Python.Python -v 3.12.1 --override "/passive PrependPath=1"
 @rem bazel requires a bazel3.exe binary, create a symlink for it.
 mklink "%LOCALAPPDATA%\Programs\Python\Python312\python3.exe" "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
 
@@ -68,7 +72,7 @@ setx BAZEL_SH "C:\msys64\usr\bin\bash.exe"
 echo.
 echo.* Step 6 Install msys2 tools suggested for bazel, from https://bazel.build/install/windows.
 @rem Invoking pacman like this reports an error updating GNU info files, no idea how to fix.
-C:\msys64\usr\bin\bash -c "/usr/bin/pacman -S --noconfirm zip unzip patch diffutils"
+C:\msys64\usr\bin\bash -c "/usr/bin/pacman -S --noconfirm zip unzip patch diffutils tcl
 call :AddToUserPathInEnvironment C:\msys64\usr\bin
 
 echo.
